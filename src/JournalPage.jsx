@@ -74,6 +74,7 @@ function TabBtn({ icon, label, active, onClick, theme }) {
 
 /* ---------- Main ---------- */
 export default function JournalPage() {
+  const [refreshCal, setRefreshCal] = useState(0); // <- NEU
   const db = getFirestore();
   const uid = getAuth().currentUser?.uid;
   const { dark } = useOutletContext();
@@ -166,6 +167,7 @@ export default function JournalPage() {
             dark={dark}
             uid={uid}
             onOpenTrade={(t) => setSelected(t)}
+              refreshKey={refreshCal}  
           />
         )}
 
@@ -192,8 +194,11 @@ export default function JournalPage() {
   trade={selected}
   dark={dark}
   onClose={() => setSelected(null)}
-  onDeleted={() => setSelected(null)}
-
+ onSaved={() => setRefreshCal((k) => k + 1)}     // <- Kalender neu laden
+       onDeleted={() => {                               // <- Kalender neu laden + schließen
+          setSelected(null);
+          setRefreshCal((k) => k + 1);
+}}
       />
     </div>
   );

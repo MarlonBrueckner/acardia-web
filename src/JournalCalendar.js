@@ -34,8 +34,8 @@ function usePalette(dark) {
         input: "#edf2fa",
         inputBorder: "#ffffff",
         accent: "#2c60fa",
-        chipPos: "rgba(28,191,115,.12)",
-        chipNeg: "rgba(238,78,78,.14)",
+        chipPos: "rgba(0, 255, 136, 1)",
+        chipNeg: "rgba(255, 0, 0, 1)",
         chipNeu: "rgba(140,150,170,.12)",
          shadow: "0 4px 18px rgba(30,36,64,.08)",
       };
@@ -112,7 +112,8 @@ function aggregateMonth(trades, monthDate, filters) {
 
 const weekdayShort = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export default function JournalCalendar({ dark, uid, onOpenTrade }) {
+export default function JournalCalendar({ dark, uid, onOpenTrade, refreshKey = 0 }) {
+
   const theme = usePalette(dark);
   const db = getFirestore();
 
@@ -135,16 +136,17 @@ export default function JournalCalendar({ dark, uid, onOpenTrade }) {
   const [focusKey, setFocusKey] = useState(formatDayKey(new Date()));
 
   // fetch trades once (client-side aggregate by month)
-  useEffect(() => {
-    if (!uid) return;
-    (async () => {
-      setLoading(true);
-      const snap = await getDocs(collection(db, "users", uid, "trades"));
-      const items = snap.docs.map((d) => d.data());
-      setAllTrades(items);
-      setLoading(false);
-    })();
-  }, [uid, db]);
+useEffect(() => {
+  if (!uid) return;
+  (async () => {
+    setLoading(true);
+    const snap = await getDocs(collection(db, "users", uid, "trades"));
+      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() })); // <-- ID sicherstellen
+    setAllTrades(items);
+    setLoading(false);
+  })();
+}, [uid, db, refreshKey]); // <- refreshKey hier rein
+
 
   // debounce search
   useEffect(() => {
@@ -197,7 +199,7 @@ export default function JournalCalendar({ dark, uid, onOpenTrade }) {
     const bg =
       profit > 0 ? theme.chipPos : profit < 0 ? theme.chipNeg : theme.chipNeu;
     const color =
-      profit > 0 ? "#1cbf73" : profit < 0 ? "#ee4e4e" : theme.sub;
+      profit > 0 ? "#00ff88ff" : profit < 0 ? "#ff0000ff" : theme.sub;
      const text = `${profit > 0 ? "+" : ""}$${Math.trunc(profit)}`;
     return (
       <div
@@ -240,8 +242,8 @@ if (!isCurrMonth) {
    // Farbdefinitionen für Pos/Neg/Neutral
  const baseKey = info ? (info.profit > 0 ? "pos" : info.profit < 0 ? "neg" : "neu") : null;
  const baseRGB = {
-   pos: { r: 28,  g: 191, b: 115 },   // #1CBF73
-   neg: { r: 238, g: 78,  b: 78  },   // #EE4E4E
+   pos: { r: 28,  g: 191, b: 115 },   // #00ff88ff
+   neg: { r: 238, g: 78,  b: 78  },   // #ff0000ff
    neu: { r: 140, g: 150, b: 170 },   // #8C96AA
  };
  const c = baseKey ? baseRGB[baseKey] : null;
@@ -716,9 +718,9 @@ function DayDetailPanel({ dark, theme, dateKey, trades, totalProfit, onClose, on
       padding: "4px 10px",
       color:
         outcome === "Win"
-          ? "#1cbf73"
+          ? "#00ff88ff"
           : outcome === "Loss"
-          ? "#ee4e4e"
+          ? "#ff0000ff"
           : theme.sub,
       border: `1px solid ${theme.border}`,
     };
@@ -768,9 +770,9 @@ function DayDetailPanel({ dark, theme, dateKey, trades, totalProfit, onClose, on
                 style={{
                   color:
                     totalProfit > 0
-                      ? "#1cbf73"
+                      ? "#00ff88ff"
                       : totalProfit < 0
-                      ? "#ee4e4e"
+                      ? "#ff0000ff"
                       : theme.sub,
                 }}
               >
@@ -795,9 +797,9 @@ function DayDetailPanel({ dark, theme, dateKey, trades, totalProfit, onClose, on
         </div>
 
         {/* list */}
-        {trades.map((t) => (
-          <div
-            key={t.id}
+     {trades.map((t, i) => (
+  <div key={t.id || `${t.symbol || 't'}-${i}`}
+
             style={{
               border: `1px solid ${theme.border}`,
               borderRadius: 12,
@@ -826,9 +828,9 @@ function DayDetailPanel({ dark, theme, dateKey, trades, totalProfit, onClose, on
                   fontWeight: 800,
                   color:
                     Number(t.risk) > 0
-                      ? "#1cbf73"
+                      ? "#00ff88ff"
                       : Number(t.risk) < 0
-                      ? "#ee4e4e"
+                      ? "#ff0000ff"
                       : theme.sub,
                 }}
               >

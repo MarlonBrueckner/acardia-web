@@ -1,13 +1,12 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getAuth } from "firebase/auth";
-import { getFirestore, doc, setDoc, getDocs, collection, deleteDoc, addDoc } from "firebase/firestore";
+import { getFirestore, doc, setDoc, getDocs, collection, deleteDoc } from "firebase/firestore";
 
+import SymbolPicker from "./SymbolPicker"; // Pfad ggf. anpassen
 
-import { FiX, FiUpload, FiTrash2, FiChevronDown, FiImage  } from "react-icons/fi";
+import { FiX, FiChevronDown, FiImage  } from "react-icons/fi";
 import { FaSmile, FaMeh, FaFrown } from "react-icons/fa";
-import { FiBookmark } from "react-icons/fi";
-import { FaBookmark } from "react-icons/fa";
 
 
 /* -------------------- THEME -------------------- */
@@ -304,8 +303,9 @@ export default function NewTradePanel({ open, onClose, dark = true }) {
   const db = getFirestore();
   const uid = getAuth().currentUser?.uid;
 // FAVORITES (Firestore)
-const [favSymbols, setFavSymbols] = useState([]);        // ["EUR/USD", "AAPL – Apple Inc.", ...]
-const [favIds, setFavIds] = useState({});                // { "EUR/USD": "docId123", ... }
+// RICHTIG
+const [favSymbols, setFavSymbols] = useState([]);
+const [favIds, setFavIds] = useState({});
 
 // Kategorien (vereinfacht – erweitere mit deiner großen Liste)
 const categories = useMemo(() => ({
@@ -333,7 +333,7 @@ const categories = useMemo(() => ({
   Commodities: [
     "📦 CL – Crude Oil (WTI)",
     "📦 GC – Gold",
-    "📦 SI – Silver",
+    "📦 SI – goon",
   ]
 }), []);
 
@@ -341,7 +341,7 @@ const categories = useMemo(() => ({
   
   const [symbol, setSymbol] = useState("");
   const [riskReward, setRiskReward] = useState("1:3");
-  const [risk, setRisk] = useState("100");
+  const [risk, setRisk] = useState("100"); 
   const [position, setPosition] = useState("Buy");
   const [outcome, setOutcome] = useState("Win");
   const [entryDateISO, setEntryDateISO] = useState(todayISO());
@@ -351,51 +351,19 @@ const categories = useMemo(() => ({
   const [selectedEmotion, setSelectedEmotion] = useState("");
   const [positiveFeedback, setPositiveFeedback] = useState("");
   const [negativeFeedback, setNegativeFeedback] = useState("");
-const [customSymbol, setCustomSymbol] = useState("");
   /* Confluences from Firestore */
   const [masterConfluences, setMasterConfluences] = useState([]);
   const [checkedConfs, setCheckedConfs] = useState([]);
   const [newConfText, setNewConfText] = useState("");
   const [newConfColor, setNewConfColor] = useState("#2c60fa");
-const [isCustomSymbol, setIsCustomSymbol] = useState(false);
-const customInputRef = useRef(null);
 
   /* Images */
   const [imagePreviews, setImagePreviews] = useState([]);
 
   /* Symbol Search */
-  const [symQuery, setSymQuery] = useState("");
-  const [filteredSyms, setFilteredSyms] = useState([]);
-  const [showSymDrop, setShowSymDrop] = useState(false);
-// --- helpers INSIDE component (after useState etc.) ---
-const pickSymbol = (label) => {
-  setSymbol(label);
-  setSymQuery(label);
-  setShowSymDrop(false);
-};
+  const [symQuery] = useState("");
+  const [setFilteredSyms] = useState([]);
 
-const toggleFavorite = async (label) => {
-  if (!uid) return;
-
-  // already favorite -> remove
-  if (favIds[label]) {
-    await deleteDoc(doc(db, "users", uid, "symbolFavorites", favIds[label]));
-    setFavSymbols(prev => prev.filter(x => x !== label));
-    setFavIds(prev => {
-      const { [label]: _removed, ...rest } = prev;
-      return rest;
-    });
-    return;
-  }
-
-  // add
-  const ref = await addDoc(collection(db, "users", uid, "symbolFavorites"), {
-    label,
-    createdAt: Date.now()
-  });
-  setFavSymbols(prev => [label, ...prev]);
-  setFavIds(prev => ({ ...prev, [label]: ref.id }));
-};
 
   /* Load confluences on open */
   useEffect(() => {
@@ -411,20 +379,23 @@ useEffect(() => {
     const snap = await getDocs(collection(db, "users", uid, "symbolFavorites"));
     const items = snap.docs.map(d => ({ id: d.id, label: d.data().label }));
     setFavSymbols(items.map(it => it.label));
-    setFavIds(items.reduce((acc, it) => (acc[it.label] = it.id, acc), {}));
+   setFavIds(items.reduce((acc, it) => ({ ...acc, [it.label]: it.id }), {}));
+
   })();
 }, [open, uid, db]);
 
   /* Live symbol search */
-  useEffect(() => {
-    const t = setTimeout(async () => {
-      if (symQuery) {
-        const res = await fetchTVSymbols(symQuery);
-        setFilteredSyms(res);
-      } else setFilteredSyms([]);
-    }, 300);
-    return () => clearTimeout(t);
-  }, [symQuery]);
+useEffect(() => {
+  if (!open || !uid) return;
+  (async () => {
+    const snap = await getDocs(collection(db, "users", uid, "symbolFavorites"));
+    const items = snap.docs.map(d => ({ id: d.id, label: d.data().label }));
+    setFavSymbols(items.map(it => it.label));
+    setFavIds(items.reduce((acc, it) => ({ ...acc, [it.label]: it.id }), {}));
+  })();
+}, [open, uid, db, setFavSymbols, setFavIds]);
+
+
 
   if (!open) return null;
 
@@ -446,108 +417,47 @@ useEffect(() => {
     setCheckedConfs(prev => prev.filter(x => x !== id));
   };
 
-function SectionHeader({ label, color, theme }) {
-  return (
-    <div
-      style={{
-        padding: "8px 12px",
-        fontSize: 12,
-        fontWeight: 800,
-        color: color || (theme ? theme.sub : "#8a8fa0"),
-        opacity: 0.9,
-        textTransform: "uppercase",
-        letterSpacing: 0.6
-      }}
-    >
-      {label}
-    </div>
-  );
-}
 
+const handleSaveTrade = async () => {
+  if (!uid) return;
 
+  // --- Normalisierung ---
+  const normalizedRisk = (risk || "").replace(/,/g, "."); 
+  const normalizedRiskReward = (riskReward || "").replace(/,/g, ".");
 
-// Einzelne Listenzeile
-function SymbolRow({ label, isFav, onPick, onToggleFav, theme, dark }) {
-  return (
-    <div
-      onClick={onPick}
-      style={{
-        padding: "10px 12px",
-        cursor: "pointer",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between"
-      }}
-      onMouseEnter={e => (e.currentTarget.style.background = dark ? theme.input : "#f7f8fb")}
-      onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span>{label}</span>
-      </div>
-      <button
-        type="button"
-        onClick={e => {
-          e.stopPropagation();
-          onToggleFav();
-        }}
-        title={isFav ? "Remove from Favorites" : "Add to Favorites"}
-        style={{
-          border: "none",
-          background: "transparent",
-          cursor: "pointer",
-          color: isFav ? (dark ? "#ffd166" : "#f0b800") : theme.sub
-        }}
-      >
-        {isFav ? <FaBookmark size={16} /> : <FiBookmark size={18} />}
-      </button>
-    </div>
-  );
-}
+  const selectedTexts = masterConfluences
+    .filter(c => checkedConfs.includes(c.id))
+    .map(c => c.text);
 
-// Query-Matcher
-function matchesQuery(label, q) {
-  if (!q) return true;
-  return label.toLowerCase().includes(q.trim().toLowerCase());
-}
-
-// TradingView Label
-function tvLabel(s) {
-  return `${s.name} – ${s.desc || s.exchange || ""}`.trim();
-}
-
-
-
-  const handleSaveTrade = async () => {
-    if (!uid) return;
-    const selectedTexts = masterConfluences.filter(c => checkedConfs.includes(c.id)).map(c => c.text);
-    const tradeId = uuid();
-    const trade = {
-      date: formatDateDDMMYY(entryDateISO),
-      emotions: {
-        selectedEmotion,
-        positiveFeedback,
-        negativeFeedback,
-        confluenceEntries: selectedTexts
-      },
-      confluenceEntries: selectedTexts,
-      negativeFeedback,
-      positiveFeedback,
+  const tradeId = uuid();
+  const trade = {
+    date: formatDateDDMMYY(entryDateISO),
+    emotions: {
       selectedEmotion,
-      entryDate: formatDateDDMMYY(entryDateISO),
-      exitDate: formatDateDDMMYY(exitDateISO),
-      id: tradeId,
-      images: imagePreviews,
-      outcome,
-      position,
-      risk,
-      riskReward,
-      symbol,
-      time: entryTime,
-      timeZone: exitTime
-    };
-    await setDoc(doc(db, "users", uid, "trades", tradeId), trade);
-    onClose();
+      positiveFeedback,
+      negativeFeedback,
+      confluenceEntries: selectedTexts
+    },
+    confluenceEntries: selectedTexts,
+    negativeFeedback,
+    positiveFeedback,
+    selectedEmotion,
+    entryDate: formatDateDDMMYY(entryDateISO),
+    exitDate: formatDateDDMMYY(exitDateISO),
+    id: tradeId,
+    images: imagePreviews,
+    outcome,
+    position,
+    risk: normalizedRisk,          // hier mit Punkt gespeichert
+    riskReward: normalizedRiskReward,
+    symbol,
+    time: entryTime,
+    timeZone: exitTime
   };
+
+  await setDoc(doc(db, "users", uid, "trades", tradeId), trade);
+  onClose();
+};
 
   return (
     <div
@@ -600,242 +510,18 @@ function tvLabel(s) {
         <div style={{ overflowY: "auto", padding: "18px", background: theme.bg }}>
           {/* Symbol */}
 
+
+
 <FieldLabel theme={theme}>Symbol</FieldLabel>
-
-{isCustomSymbol ? (
-  // --- Permanentes Textfeld ---
-  <div style={{ position: "relative", marginBottom: 18 }}>
-    <TextInput
-      ref={customInputRef}
-      theme={theme}
-      placeholder="Type your custom symbol…"
-      value={customSymbol}
-      onChange={e => {
-        const v = e.target.value;
-        setCustomSymbol(v);
-        setSymbol(v);
-      }}
-    />
-    {/* Rechts: Chevron -> zurück zum Dropdown */}
-    <button
-      type="button"
-      onClick={() => {
-        setIsCustomSymbol(false);
-        setShowSymDrop(true);
-        setSymQuery(customSymbol || "");
-      }}
-      style={{
-        position: "absolute",
-        right: 10,
-        top: "50%",
-        transform: "translateY(-50%)",
-        border: "none",
-        background: "transparent",
-        color: theme.sub,
-        cursor: "pointer",
-        padding: 4
-      }}
-      title="Choose from list"
-    >
-      <FiChevronDown size={18} />
-    </button>
-  </div>
-) : (
-  // --- Dropdown-Trigger + Liste ---
-  <div style={{ position: "relative", marginBottom: 18 }}>
-    <div
-      onClick={() => setShowSymDrop(o => !o)}
-      style={{
-        background: theme.input,
-        border: `1px solid ${theme.inputBorder}`,
-        borderRadius: 12,
-        padding: "11px 40px 11px 12px",
-        color: theme.text,
-        cursor: "pointer",
-        userSelect: "none",
-        display: "flex",
-        alignItems: "center",
-        minHeight: 42
-      }}
-      role="button"
-      aria-haspopup="listbox"
-      aria-expanded={showSymDrop}
-    >
-      <span style={{ opacity: symbol ? 1 : 0.6 }}>
-        {symbol || "Select a symbol…"}
-      </span>
-      <FiChevronDown
-        size={18}
-        style={{
-          position: "absolute",
-          right: 12,
-          top: "50%",
-          transform: "translateY(-50%)",
-          color: theme.sub
-        }}
-      />
-    </div>
-
-    {showSymDrop && (
-      <div
-        style={{
-          position: "absolute",
-          top: "calc(100% + 6px)",
-          left: 0,
-          right: 0,
-          background: dark ? theme.panel : "#fff",
-          color: theme.text,
-          border: `1px solid ${theme.inputBorder}`,
-          borderRadius: 12,
-          boxShadow: theme.shadow,
-          zIndex: 20,
-          overflow: "hidden"
-        }}
-        onMouseDown={e => e.preventDefault()}
-      >
-        {/* Suche */}
-        <div
-          style={{
-            padding: 10,
-            borderBottom: `1px solid ${theme.inputBorder}`,
-            background: dark ? theme.input : "#fff"
-          }}
-        >
-          <div style={{ position: "relative" }}>
-            <input
-              autoFocus
-              value={symQuery}
-              onChange={e => setSymQuery(e.target.value)}
-              placeholder="Search symbols…"
-              style={{
-                width: "100%",
-                border: `1px solid ${theme.inputBorder}`,
-                background: dark ? theme.input : "#fff",
-                color: theme.text,
-                borderRadius: 10,
-                outline: "none",
-                padding: "10px 34px 10px 34px",
-                fontSize: 14
-              }}
-            />
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              style={{
-                position: "absolute",
-                left: 10,
-                top: "50%",
-                transform: "translateY(-50%)",
-                opacity: 0.6,
-                fill: "currentColor",
-                color: theme.sub
-              }}
-            >
-              <path d="M15.5 14h-.79l-.28-.27A6.471 6.471 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"></path>
-            </svg>
-          </div>
-        </div>
-
-
-        {/* Liste mit Favoriten + Kategorien */}
-        <div style={{ maxHeight: 320, overflowY: "auto" }}>
-          {/* FAVORITEN */}
-          {favSymbols.length > 0 && (
-            <>
-              <SectionHeader label="Favorites" color={theme.accent} />
-              {favSymbols
-                .filter(s => matchesQuery(s, symQuery))
-                .map(s => (
-                  <SymbolRow
-                    key={`fav-${s}`}
-                    label={s}
-                    isFav={true}
-                    onPick={() => pickSymbol(s)}
-                    onToggleFav={() => toggleFavorite(s)}
-                    theme={theme}
-                    dark={dark}
-                  />
-                ))}
-            </>
-          )}
-
-          {/* Kategorien */}
-          {Object.entries(categories).map(([cat, list]) => {
-            const items = list.filter(s => matchesQuery(s, symQuery) && !favSymbols.includes(s));
-            if (items.length === 0) return null;
-            return (
-              <div key={cat}>
-                <SectionHeader label={cat} />
-                {items.map(s => (
-                  <SymbolRow
-                    key={`${cat}-${s}`}
-                    label={s}
-                    isFav={!!favIds[s]}
-                    onPick={() => pickSymbol(s)}
-                    onToggleFav={() => toggleFavorite(s)}
-                    theme={theme}
-                    dark={dark}
-                  />
-                ))}
-              </div>
-            );
-          })}
-
-          {/* TradingView Treffer (falls du die Live-Suche nutzt) */}
-          {filteredSyms.length > 0 && (
-            <>
-              <SectionHeader label="TradingView" />
-              {filteredSyms
-                .filter(s => !favSymbols.includes(tvLabel(s)))
-                .map((s, i) => {
-                  const label = tvLabel(s);
-                  return (
-                    <SymbolRow
-                      key={`tv-${label}-${i}`}
-                      label={label}
-                      isFav={!!favIds[label]}
-                      onPick={() => pickSymbol(label)}
-                      onToggleFav={() => toggleFavorite(label)}
-                      theme={theme}
-                      dark={dark}
-                    />
-                  );
-                })}
-            </>
-          )}
-
-          {/* OTHER */}
-         <div
-          role="option"
-          onClick={() => {
-            setShowSymDrop(false);
-            setIsCustomSymbol(true);
-            setCustomSymbol("");
-            setSymbol("");
-            setTimeout(() => customInputRef.current?.focus(), 0);
-          }}
-          style={{
-            padding: "10px 12px",
-            cursor: "pointer",
-            borderTop: `1px solid ${theme.inputBorder}`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between"
-          }}
-          onMouseEnter={e => (e.currentTarget.style.background = dark ? theme.input : "#f7f8fb")}
-          onMouseLeave={e => (e.currentTarget.style.background = "transparent")}
-        >
-          <span>Other</span>
-          <span style={{ fontSize: 12, opacity: 0.6 }}>Type custom symbol</span>
-        </div>
-        </div>
-      </div>
-    )}
-  </div>
-)}
-
-
+<SymbolPicker
+  value={symbol}
+  onChange={setSymbol}
+  dark={dark}
+  theme={theme}
+  categories={categories}      // falls du deine Kategorien-Liste behalten willst
+  enableTVSearch={true}        // optional (kannst du auch weglassen/auf false setzen)
+/>
+<div style={{ height: 8 }} />
           {/* Dates & Times */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div>

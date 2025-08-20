@@ -1,22 +1,33 @@
 // src/components/TradeDetailModal.jsx
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState } from "react";
 import { getAuth } from "firebase/auth";
 import {
   getFirestore,
   doc,
-  deleteDoc,
   updateDoc,
-  collection,
-  getDocs,
+  deleteDoc
 } from "firebase/firestore";
 import {
   getStorage,
   ref as storageRef,
   uploadBytesResumable,
-  getDownloadURL,
+  getDownloadURL
 } from "firebase/storage";
-import { FiX, FiTrash2, FiEdit2, FiClock, FiTrendingUp, FiTag, FiPlus, FiImage } from "react-icons/fi";
-
+import {
+  FiX,
+  FiTrash2,
+  FiEdit2,
+  FiCheck,
+  FiXCircle,
+  FiClock,
+  FiTrendingUp,
+  FiTag,
+  FiImage,
+  FiChevronDown
+} from "react-icons/fi";
+import SymbolPicker from "./SymbolPicker";
+import { CustomSelectRounded } from "./CustomSelectRounded";
+import { categories } from "./symbolCategories";
 /* ---- Theme ---- */
 const palette = {
   dark: {
@@ -27,6 +38,8 @@ const palette = {
     border: "#2a2a2f",
     chip: "#23232a",
     accent: "#2c60fa",
+    input: "#1f1f1f",
+    inputBorder: "#4e4e4e",
   },
   light: {
     bg: "#edf2fa",
@@ -36,8 +49,11 @@ const palette = {
     border: "#e3e7ef",
     chip: "#f4f7ff",
     accent: "#2c60fa",
+    input: "#ffffff",
+    inputBorder: "#e3e7ef",
   },
 };
+
 
 const OUTCOME = {
   win: { hex: "#1CBF73" },
@@ -47,49 +63,50 @@ const OUTCOME = {
 const pickOutcome = (o = "") =>
   o.toLowerCase() === "win" ? "win" : o.toLowerCase() === "loss" ? "loss" : "be";
 
+const tint = (dark, hex, a) => {
+  const c = hex.replace("#", "");
+  const r = parseInt(c.slice(0, 2), 16),
+    g = parseInt(c.slice(2, 4), 16),
+    b = parseInt(c.slice(4, 6), 16);
+  return dark
+    ? `linear-gradient(135deg, rgba(${r},${g},${b},0) 0%, rgba(${r},${g},${b},${a}) 100%)`
+    : `rgba(${r},${g},${b},${a * 0.9})`;
+};
 const rgba = (hex, a) => {
   const c = (hex || "#2c60fa").replace("#", "");
-  const r = parseInt(c.slice(0, 2), 16);
-  const g = parseInt(c.slice(2, 4), 16);
-  const b = parseInt(c.slice(4, 6), 16);
+  const r = parseInt(c.slice(0, 2), 16),
+    g = parseInt(c.slice(2, 4), 16),
+    b = parseInt(c.slice(4, 6), 16);
   return `rgba(${r},${g},${b},${a})`;
 };
-const tint = (dark, hex, a) =>
-  dark
-    ? `linear-gradient(135deg, ${rgba(hex, 0)} 0%, ${rgba(hex, a)} 100%)`
-    : rgba(hex, a * 0.9);
 
-/* ---- Confluence-Palette laden (users/{uid}/confluences) ---- */
-function useConfluencePalette() {
-  const [list, setList] = useState([]); // [{text,color}, ...]
-  useEffect(() => {
-    const uid = getAuth().currentUser?.uid;
-    if (!uid) return;
-    (async () => {
-      try {
-        const db = getFirestore();
-        const snap = await getDocs(collection(db, "users", uid, "confluences"));
-        const rows = [];
-        snap.forEach((d) => {
-          const { text, color } = d.data() || {};
-          if (text && color) rows.push({ text, color });
-        });
-        setList(rows);
-      } catch (e) {
-        console.error("load confluences", e);
-      }
-    })();
-  }, []);
-  // Map zum schnellen Nachschlagen
-  const map = useMemo(() => {
-    const m = {};
-    list.forEach(({ text, color }) => (m[String(text).toLowerCase()] = color));
-    return m;
-  }, [list]);
-  return { list, map };
-}
+/* ---- Small UI helpers ---- */
+const inputBase = (t) => ({
+  width: "100%",
+  background: t.input,
+  color: t.text,
+  border: `1px solid ${t.inputBorder}`,
+  borderRadius: 12,
+  padding: "10px 12px",
+  outline: "none",
+  fontSize: 14,
+});
+const label = (t) => ({
+  color: t.sub,
+  fontSize: 12,
+  fontWeight: 800,
+  textTransform: "uppercase",
+  letterSpacing: 0.5,
+  marginBottom: 6,
+});
+const section = (t) => ({
+  background: t.panel,
+  border: `1px solid ${t.border}`,
+  borderRadius: 14,
+  padding: 14,
+});
 
-/* ---- Kleinere UI-Helfer ---- */
+/* ---- Reusable rows / tags ---- */
 function Row({ k, v, icon, theme }) {
   if (!v) return null;
   return (
@@ -101,26 +118,26 @@ function Row({ k, v, icon, theme }) {
   );
 }
 
-function Tags({ list, theme, paletteMap }) {
+function Tags({ list, theme }) {
   if (!Array.isArray(list) || list.length === 0) return null;
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {list.map((t, i) => {
         const text = t?.text ?? t;
-        const lower = String(text).toLowerCase();
-        const color = t?.color ?? paletteMap[lower] ?? "#2C60FA";
+        const color = t?.color ?? "#2C60FA";
         return (
           <span
             key={`${text}-${i}`}
             title={text}
             style={{
               padding: "6px 10px",
-              borderRadius: 10,
+              borderRadius: 10, // weniger rund
               background: rgba(color, 0.16),
               border: `1px solid ${rgba(color, 0.4)}`,
               color,
               fontSize: 12,
               fontWeight: 600,
+              lineHeight: 1,
             }}
           >
             {text}
@@ -131,68 +148,92 @@ function Tags({ list, theme, paletteMap }) {
   );
 }
 
-/* ---- Hauptkomponente ---- */
+/**
+ * TradeDetailModal
+ * Props:
+ * - open, trade, dark
+ * - onClose()
+ * - onDeleted?()
+ */
 export default function TradeDetailModal({
   open,
   trade,
   dark,
   onClose,
   onDeleted,
+  onSaved
 }) {
   const theme = useMemo(() => (dark ? palette.dark : palette.light), [dark]);
-  const { list: confList, map: confMap } = useConfluencePalette();
-
   const [imgIdx, setImgIdx] = useState(0);
   const [isEdit, setIsEdit] = useState(false);
-  const [busy, setBusy] = useState(false);
 
-  // Edit-Form State
-  const [form, setForm] = useState(null);
+// Beispiel-Symbole – später evtl. dynamisch aus DB laden
 
-  useEffect(() => {
-    if (open && trade) {
-      setIsEdit(false);
-      setImgIdx(0);
-      setForm({
-        symbol: trade.symbol || "",
-        position: trade.position || "",
-        outcome: trade.outcome || "",
-        riskReward: trade.riskReward || "",
-        risk: trade.risk ?? "",
-        entryDate: trade.entryDate || trade.date || "",
-        time: trade.time || "",
-        exitDate: trade.exitDate || "",
-        timeZone: trade.timeZone || "",
-        positiveFeedback: trade.positiveFeedback || "",
-        negativeFeedback: trade.negativeFeedback || "",
-        images: Array.isArray(trade.images) ? trade.images.filter(Boolean) : [],
-        confluenceEntries: Array.isArray(trade.confluenceEntries)
-          ? trade.confluenceEntries.map((c) =>
-              typeof c === "string" ? { text: c, color: confMap[String(c).toLowerCase()] || "#2C60FA" } : c
-            )
-          : [],
-        currencySymbol: trade.currencySymbol || "",
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, trade, confMap]);
 
-  if (!open || !trade || !form) return null;
+  // Form-State für Edit
+  const [form, setForm] = useState(() => ({
+    symbol: trade?.symbol || "",
+    position: trade?.position || "",
+    outcome: trade?.outcome || "BE",
+    riskReward: trade?.riskReward || "",
+    risk: trade?.risk ?? 0,
+    entryDate: trade?.entryDate || trade?.date || "",
+    time: trade?.time || "",
+    exitDate: trade?.exitDate || "",
+    timeZone: trade?.timeZone || "",
+    positiveFeedback: trade?.positiveFeedback || "",
+    negativeFeedback: trade?.negativeFeedback || "",
+    currencySymbol: trade?.currencySymbol || "",
+    confluenceEntries: Array.isArray(trade?.confluenceEntries)
+      ? trade.confluenceEntries.map((c) =>
+          typeof c === "string" ? { text: c, color: "#2C60FA" } : c
+        )
+      : [],
+    images: Array.isArray(trade?.images) ? trade.images.filter(Boolean) : [],
+  }));
 
-  const ok = pickOutcome(trade.outcome);
+  // Wenn Modal neu geöffnet wird, Form mit Trade-Daten resetten
+  React.useEffect(() => {
+    if (!open || !trade) return;
+    setIsEdit(false);
+    setImgIdx(0);
+    setForm({
+      symbol: trade.symbol || "",
+      position: trade.position || "",
+      outcome: trade.outcome || "BE",
+      riskReward: trade.riskReward || "",
+      risk: trade.risk ?? 0,
+      entryDate: trade.entryDate || trade.date || "",
+      time: trade.time || "",
+      exitDate: trade.exitDate || "",
+      timeZone: trade.timeZone || "",
+      positiveFeedback: trade.positiveFeedback || "",
+      negativeFeedback: trade.negativeFeedback || "",
+      currencySymbol: trade.currencySymbol || "",
+      confluenceEntries: Array.isArray(trade.confluenceEntries)
+        ? trade.confluenceEntries.map((c) =>
+            typeof c === "string" ? { text: c, color: "#2C60FA" } : c
+          )
+        : [],
+      images: Array.isArray(trade.images) ? trade.images.filter(Boolean) : [],
+    });
+  }, [open, trade]);
+
+  if (!open || !trade) return null;
+
+  const ok = pickOutcome(form.outcome || trade.outcome);
   const okHex = OUTCOME[ok].hex;
 
-  const imgs = form.images;
-  const showGallery = imgs.length > 0;
-  const currentImg = showGallery ? imgs[Math.min(imgIdx, imgs.length - 1)] : null;
+  const showGallery = form.images.length > 0;
+  const currentImg = showGallery ? form.images[Math.min(imgIdx, form.images.length - 1)] : null;
 
-  const val = Number(trade.risk ?? 0);
+  const val = Number(form.risk ?? 0);
   const profitColor = val > 0 ? OUTCOME.win.hex : val < 0 ? OUTCOME.loss.hex : theme.sub;
   const sign = val > 0 ? "+" : val < 0 ? "-" : "";
   const abs = Math.trunc(Math.abs(val));
-  const currency = trade.currencySymbol || form.currencySymbol || "";
 
-  async function handleDelete() {
+  /* ------- Actions ------- */
+  async function handleDeleteTrade() {
     try {
       const uid = getAuth().currentUser?.uid;
       if (!uid) throw new Error("No user");
@@ -205,19 +246,70 @@ export default function TradeDetailModal({
     }
   }
 
-  async function handleUploadFiles(files) {
+  async function handleSave() {
+  try {
     const uid = getAuth().currentUser?.uid;
-    if (!uid || !trade?.id || !files?.length) return;
-    const storage = getStorage();
-    setBusy(true);
+    if (!uid) throw new Error("No user");
+    const db = getFirestore();
+
+    // Nur Felder mergen, die wir im Formular führen
+    const payload = {
+      symbol: form.symbol || "",
+      position: form.position || "",
+      outcome: form.outcome || "BE",
+      riskReward: form.riskReward || "",
+      risk: Number(form.risk) || 0,
+      entryDate: form.entryDate || "",
+      time: form.time || "",
+      exitDate: form.exitDate || "",
+      timeZone: form.timeZone || "",
+      positiveFeedback: form.positiveFeedback || "",
+      negativeFeedback: form.negativeFeedback || "",
+      currencySymbol: form.currencySymbol || "",
+      confluenceEntries: (form.confluenceEntries || []).map((c) => ({
+        text: c.text,
+        color: c.color || "#2C60FA",
+      })),
+      images: form.images || [],
+    };
+
+    // Speichern und warten
+    await updateDoc(doc(db, "users", uid, "trades", trade.id), payload);
+
+    // Erst nach Erfolg UI anpassen
+    setIsEdit(false);
+
+    // Optional: Refresh/Callback nur nach Save
+    if (typeof onSaved === "function") {
+      onSaved(); // z. B. refreshKey erhöhen
+    }
+
+  } catch (e) {
+    console.error("Fehler beim Speichern:", e);
+  }
+}
+
+  function removeCurrentImage() {
+    if (!showGallery) return;
+    const next = [...form.images];
+    next.splice(imgIdx, 1);
+    setForm((f) => ({ ...f, images: next }));
+    setImgIdx((i) => Math.max(0, Math.min(i, next.length - 1)));
+  }
+
+  async function uploadImages(files) {
     try {
-      const newUrls = [];
+      const uid = getAuth().currentUser?.uid;
+      if (!uid || !trade?.id || !files?.length) return;
+      const storage = getStorage();
+
+      const urls = [];
       for (const file of files) {
-        const path = `users/${uid}/trade_images/${trade.id}/${Date.now()}_${file.name}`;
+        const path = `users/${uid}/trades/${trade.id}/${Date.now()}_${file.name}`;
         const ref = storageRef(storage, path);
         const task = uploadBytesResumable(ref, file, {
-          contentType: file.type,
-          cacheControl: "public,max-age=31536000",
+          contentType: file.type || "image/jpeg",
+          cacheControl: "public, max-age=31536000",
         });
         await new Promise((res, rej) => {
           task.on(
@@ -226,73 +318,38 @@ export default function TradeDetailModal({
             rej,
             async () => {
               const url = await getDownloadURL(ref);
-              newUrls.push(url);
+              urls.push(url);
               res();
             }
           );
         });
       }
-      setForm((f) => ({ ...f, images: [...f.images, ...newUrls] }));
-      setImgIdx((i) => (showGallery ? i : 0));
-    } catch (e) {
-      console.error("upload error", e);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function handleSave() {
-    try {
-      setBusy(true);
-      const uid = getAuth().currentUser?.uid;
-      if (!uid) throw new Error("No user");
-      const db = getFirestore();
-
-      // Speichere Confluences als {text,color}
-      const cleanConfs = (form.confluenceEntries || [])
-        .filter((c) => c?.text)
-        .map((c) => ({
-          text: c.text,
-          color: c.color || confMap[String(c.text).toLowerCase()] || "#2C60FA",
-        }));
-
-      await updateDoc(doc(db, "users", uid, "trades", trade.id), {
-        symbol: form.symbol,
-        position: form.position,
-        outcome: form.outcome,
-        riskReward: form.riskReward,
-        risk: form.risk === "" ? null : Number(form.risk),
-        entryDate: form.entryDate,
-        time: form.time,
-        exitDate: form.exitDate,
-        timeZone: form.timeZone,
-        positiveFeedback: form.positiveFeedback || "",
-        negativeFeedback: form.negativeFeedback || "",
-        images: form.images,
-        confluenceEntries: cleanConfs,
-        currencySymbol: form.currencySymbol || "",
-      });
-
-      setIsEdit(false);
+      setForm((f) => ({ ...f, images: [...f.images, ...urls] }));
     } catch (e) {
       console.error(e);
-    } finally {
-      setBusy(false);
     }
   }
 
-  const hasDetails =
-    form.position ||
-    form.entryDate ||
-    form.exitDate ||
-    form.time ||
-    form.timeZone ||
-    form.riskReward;
+  /* ------- Edit helpers ------- */
+  function updateField(key, val) {
+    setForm((f) => ({ ...f, [key]: val }));
+  }
+  function addConfluence(text, color) {
+    if (!text) return;
+    setForm((f) => ({
+      ...f,
+      confluenceEntries: [...(f.confluenceEntries || []), { text, color: color || "#2C60FA" }],
+    }));
+  }
+  function removeConfluence(idx) {
+    setForm((f) => {
+      const next = [...(f.confluenceEntries || [])];
+      next.splice(idx, 1);
+      return { ...f, confluenceEntries: next };
+    });
+  }
 
-  const hasPos = !!(form.positiveFeedback && form.positiveFeedback.trim());
-  const hasNeg = !!(form.negativeFeedback && form.negativeFeedback.trim());
-  const hasTags = Array.isArray(form.confluenceEntries) && form.confluenceEntries.length > 0;
-
+  /* ------- Render ------- */
   return (
     <div
       onMouseDown={(e) => e.target === e.currentTarget && onClose?.()}
@@ -328,10 +385,9 @@ export default function TradeDetailModal({
             alignItems: "center",
             justifyContent: "space-between",
             borderBottom: `1px solid ${theme.border}`,
-            background: tint(dark, OUTCOME[pickOutcome(form.outcome)].hex, 0.18),
+            background: tint(dark, okHex, 0.18),
           }}
         >
-          {/* left cluster */}
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
             <div
               style={{
@@ -341,48 +397,42 @@ export default function TradeDetailModal({
                 overflow: "hidden",
                 textOverflow: "ellipsis",
               }}
-              title="Symbol"
             >
               {form.symbol || "—"}
             </div>
 
-            {form.outcome && (
-              <div
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  background: tint(dark, OUTCOME[pickOutcome(form.outcome)].hex, 0.28),
-                  color: OUTCOME[pickOutcome(form.outcome)].hex,
-                  fontWeight: 800,
-                  fontSize: 12,
-                  textTransform: "uppercase",
-                }}
-                title="Outcome"
-              >
-                {form.outcome}
-              </div>
-            )}
+            <div
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: tint(dark, okHex, 0.28),
+                color: okHex,
+                fontWeight: 800,
+                fontSize: 12,
+                textTransform: "uppercase",
+              }}
+              title="Outcome"
+            >
+              {form.outcome}
+            </div>
 
-            {(trade.risk ?? trade.risk === 0) && (
-              <div
-                style={{
-                  padding: "4px 10px",
-                  borderRadius: 999,
-                  background: tint(dark, profitColor, 0.22),
-                  color: profitColor,
-                  fontSize: 13,
-                  fontWeight: 800,
-                  fontFamily:
-                    "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-                }}
-                title="P/L"
-              >
-                {`${sign}${currency}${abs}`}
-              </div>
-            )}
+            <div
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                background: tint(dark, profitColor, 0.22),
+                color: profitColor,
+                fontSize: 13,
+                fontWeight: 800,
+                fontFamily:
+                  "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
+              }}
+              title="P/L"
+            >
+              {`${sign}${form.currencySymbol || ""}${abs}`}
+            </div>
           </div>
 
-          {/* right cluster */}
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             {!isEdit ? (
               <>
@@ -390,32 +440,28 @@ export default function TradeDetailModal({
                   onClick={() => setIsEdit(true)}
                   title="Edit trade"
                   style={{
-                    border: `1px solid ${theme.border}`,
+                    border: "none",
                     background: "transparent",
                     color: theme.text,
                     cursor: "pointer",
                     width: 36,
                     height: 36,
                     borderRadius: 10,
-                    display: "grid",
-                    placeItems: "center",
                   }}
                 >
                   <FiEdit2 />
                 </button>
                 <button
-                  onClick={handleDelete}
+                  onClick={handleDeleteTrade}
                   title="Delete trade"
                   style={{
-                    border: `1px solid ${rgba("#EE4E4E", 0.55)}`,
-                    background: "transparent",
+                    border: "none",
+                    background: "transparent", // kein roter Hintergrund
                     color: "#EE4E4E",
                     cursor: "pointer",
                     width: 36,
                     height: 36,
                     borderRadius: 10,
-                    display: "grid",
-                    placeItems: "center",
                   }}
                 >
                   <FiTrash2 />
@@ -431,8 +477,6 @@ export default function TradeDetailModal({
                     width: 36,
                     height: 36,
                     borderRadius: 10,
-                    display: "grid",
-                    placeItems: "center",
                   }}
                 >
                   <FiX size={20} />
@@ -441,60 +485,40 @@ export default function TradeDetailModal({
             ) : (
               <>
                 <button
-                  disabled={busy}
                   onClick={handleSave}
-                  title="Save"
+                  title="Save changes"
                   style={{
-                    border: "none",
-                    background: theme.accent,
-                    color: "#fff",
+                    border: `1px solid ${theme.border}`,
+                    background: theme.panel,
+                    color: theme.text,
                     cursor: "pointer",
-                    padding: "10px 14px",
+                    padding: "8px 12px",
                     borderRadius: 10,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
                     fontWeight: 700,
                   }}
                 >
-                  {busy ? "Saving…" : "Save"}
+                  <FiCheck /> Save
                 </button>
                 <button
-                  disabled={busy}
-                  onClick={() => {
-                    setIsEdit(false);
-                    // Reset zurück auf Original (ohne persistente Änderungen)
-                    setForm((f) => ({
-                      ...f,
-                      symbol: trade.symbol || "",
-                      position: trade.position || "",
-                      outcome: trade.outcome || "",
-                      riskReward: trade.riskReward || "",
-                      risk: trade.risk ?? "",
-                      entryDate: trade.entryDate || trade.date || "",
-                      time: trade.time || "",
-                      exitDate: trade.exitDate || "",
-                      timeZone: trade.timeZone || "",
-                      positiveFeedback: trade.positiveFeedback || "",
-                      negativeFeedback: trade.negativeFeedback || "",
-                      images: Array.isArray(trade.images) ? trade.images.filter(Boolean) : [],
-                      confluenceEntries: Array.isArray(trade.confluenceEntries)
-                        ? trade.confluenceEntries.map((c) =>
-                            typeof c === "string" ? { text: c, color: confMap[String(c).toLowerCase()] || "#2C60FA" } : c
-                          )
-                        : [],
-                      currencySymbol: trade.currencySymbol || "",
-                    }));
-                  }}
+                  onClick={() => setIsEdit(false)}
                   title="Cancel"
                   style={{
                     border: `1px solid ${theme.border}`,
                     background: "transparent",
-                    color: theme.text,
+                    color: theme.sub,
                     cursor: "pointer",
-                    padding: "10px 14px",
+                    padding: "8px 12px",
                     borderRadius: 10,
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
                     fontWeight: 700,
                   }}
                 >
-                  Cancel
+                  <FiXCircle /> Cancel
                 </button>
               </>
             )}
@@ -512,301 +536,311 @@ export default function TradeDetailModal({
             gridTemplateColumns: showGallery ? "1.2fr .8fr" : "1fr",
           }}
         >
-          {/* LEFT: Info / Edit */}
+          {/* LEFT: Details, Notes, Confluences */}
           <div style={{ display: "grid", gap: 12 }}>
             {/* Details */}
-            {(hasDetails || isEdit) && (
-              <section
-                style={{
-                  background: theme.panel,
-                  border: `1px solid ${theme.border}`,
-                  borderRadius: 14,
-                  padding: 14,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 900,
-                    color: theme.sub,
-                    textTransform: "uppercase",
-                    letterSpacing: 0.5,
-                    marginBottom: 8,
-                  }}
-                >
-                  Trade Details
-                </div>
+            <section style={section(theme)}>
+              <div style={label(theme)}></div>
 
+             {!isEdit ? (
+  <div style={{ display: "grid", gap: 10 }}>
+    <Row k="Position" v={form.position} icon={<FiTrendingUp size={16} />} theme={theme} />
+    <Row k="Outcome" v={form.outcome} icon={<FiTrendingUp size={16} />} theme={theme} />
+    <Row k="Risk/Reward" v={form.riskReward} icon={<FiTrendingUp size={16} />} theme={theme} />
+    <Row k="Entry" v={[form.entryDate, form.time].filter(Boolean).join(" • ")} icon={<FiClock size={16} />} theme={theme} />
+    {form.exitDate || form.timeZone ? (
+      <Row k="Exit" v={[form.exitDate, form.timeZone].filter(Boolean).join(" • ")} icon={<FiClock size={16} />} theme={theme} />
+    ) : null}
+  </div>
+) : (
+  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+
+
+<div style={{ gridColumn: "1 / -1" }}>
+  <div style={label(theme)}>Symbol</div>
+  <SymbolPicker
+    value={form.symbol}
+    onChange={(v) => updateField("symbol", v)}
+    dark={dark}
+    theme={theme}
+    categories={categories /* optional: dieselbe Liste wie im Form */}
+    enableTVSearch={true}
+  />
+</div>
+
+    {/* Position – Buy/Sell Segment-Picker */}
+    <div>
+      <div style={label(theme)}>Position</div>
+      <div
+        role="tablist"
+        aria-label="Position"
+        style={{
+          position: "relative",
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          borderRadius: 12,
+          background: theme.input,
+          border: `1px solid ${theme.inputBorder}`,
+          height: 44,
+          overflow: "hidden",
+        }}
+      >
+        <div
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            top: 4,
+            bottom: 4,
+            left: 4,
+            width: "calc(50% - 4px)",
+            borderRadius: 8,
+            background: `${theme.accent}33`,
+            border: `1px solid ${theme.accent}`,
+            transform: form.position === "Sell" ? "translateX(100%)" : "translateX(0)",
+            transition: "transform .2s ease",
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => updateField("position", "Buy")}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: theme.text,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Buy
+        </button>
+        <button
+          type="button"
+          onClick={() => updateField("position", "Sell")}
+          style={{
+            border: "none",
+            background: "transparent",
+            color: theme.text,
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          Sell
+        </button>
+      </div>
+    </div>
+
+{/* Outcome – Custom Select mit Chevron und rundem Dropdown */}
+<div>
+  <div style={label(theme)}>Outcome</div>
+  <CustomSelectRounded
+    theme={theme}
+    value={form.outcome}
+    options={["Win", "Loss", "BE"]}
+    onChange={(val) => updateField("outcome", val)}
+    width={undefined} // oder z.B. 240
+  />
+</div>
+
+
+
+    {/* Risk / Reward */}
+    <div>
+      <div style={label(theme)}>Risk / Reward</div>
+      <input
+        value={form.riskReward}
+        onChange={(e) => updateField("riskReward", e.target.value)}
+        placeholder="e.g. 1:3"
+        style={inputBase(theme)}
+      />
+    </div>
+
+    {/* Profit / Loss – ohne Spinner */}
+    <div>
+      <div style={label(theme)}>Profit / Loss</div>
+      <input
+        inputMode="decimal"
+        pattern="^-?\\d*(\\.\\d+)?$"
+        value={String(form.risk ?? "")}
+        onChange={(e) => {
+          // nur +-Zahlen erlauben
+          const v = e.target.value;
+          if (/^-?\d*(\.\d+)?$/.test(v) || v === "" || v === "-") {
+            updateField("risk", v === "" || v === "-" ? v : Number(v));
+          }
+        }}
+        placeholder="e.g. 250"
+        style={{
+          ...inputBase(theme),
+          // Spinners vermeiden (Cross-Browser best effort)
+          MozAppearance: "textfield",
+        }}
+      />
+    </div>
+
+    {/* Entry Date / Time */}
+    <div>
+      <div style={label(theme)}>Entry Date</div>
+      <input
+        type="date"
+        value={
+          // erwartet YYYY-MM-DD im Picker; falls dein gespeichertes Format dd.mm.yy ist, hier konvertieren
+          /^\d{4}-\d{2}-\d{2}$/.test(form.entryDate) ? form.entryDate : ""
+        }
+        onChange={(e) => updateField("entryDate", e.target.value)}
+        style={inputBase(theme)}
+      />
+    </div>
+    <div>
+      <div style={label(theme)}>Entry Time</div>
+      <input
+        type="time"
+        value={form.time || ""}
+        onChange={(e) => updateField("time", e.target.value)}
+        style={inputBase(theme)}
+      />
+    </div>
+
+    {/* Exit Date / Time */}
+    <div>
+      <div style={label(theme)}>Exit Date</div>
+      <input
+        type="date"
+        value={/^\d{4}-\d{2}-\d{2}$/.test(form.exitDate) ? form.exitDate : ""}
+        onChange={(e) => updateField("exitDate", e.target.value)}
+        style={inputBase(theme)}
+      />
+    </div>
+    <div>
+      <div style={label(theme)}>Exit Time</div>
+      <input
+        type="time"
+        value={form.timeZone || ""} // falls du "exitTime" statt timeZone speicherst, hier anpassen
+        onChange={(e) => updateField("timeZone", e.target.value)}
+        style={inputBase(theme)}
+      />
+    </div>
+  </div>
+)}
+
+                  </section>
+
+            {/* Notes (keine Einfärbung) */}
+            {(form.positiveFeedback || isEdit) && (
+              <section style={section(theme)}>
+                <div style={label(theme)}>Notes (positive)</div>
                 {!isEdit ? (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <Row k="Position" v={form.position} icon={<FiTrendingUp size={16} />} theme={theme} />
-                    <Row k="Outcome" v={form.outcome} icon={<FiTrendingUp size={16} />} theme={theme} />
-                    <Row k="Risk/Reward" v={form.riskReward} icon={<FiTrendingUp size={16} />} theme={theme} />
-                    <Row k="Profit" v={form.risk === "" ? "" : String(form.risk)} icon={<FiTrendingUp size={16} />} theme={theme} />
-                    <Row k="Entry" v={[form.entryDate, form.time].filter(Boolean).join(" • ")} icon={<FiClock size={16} />} theme={theme} />
-                    <Row k="Exit" v={[form.exitDate, form.timeZone].filter(Boolean).join(" • ")} icon={<FiClock size={16} />} theme={theme} />
-                  </div>
+                  <div style={{ lineHeight: 1.6 }}>{form.positiveFeedback}</div>
                 ) : (
-                  <div style={{ display: "grid", gap: 10 }}>
-                    <GridField label="Symbol">
-                      <input
-                        value={form.symbol}
-                        onChange={(e) => setForm((f) => ({ ...f, symbol: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="e.g. EURUSD"
-                      />
-                    </GridField>
-                    <GridField label="Position">
-                      <select
-                        value={form.position}
-                        onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
-                        style={inputStyle(theme)}
-                      >
-                        <option value="">—</option>
-                        <option>Buy</option>
-                        <option>Sell</option>
-                      </select>
-                    </GridField>
-                    <GridField label="Outcome">
-                      <select
-                        value={form.outcome}
-                        onChange={(e) => setForm((f) => ({ ...f, outcome: e.target.value }))}
-                        style={inputStyle(theme)}
-                      >
-                        <option value="">—</option>
-                        <option>Win</option>
-                        <option>Loss</option>
-                        <option value="BE">BE</option>
-                      </select>
-                    </GridField>
-                    <GridField label="Risk/Reward">
-                      <input
-                        value={form.riskReward}
-                        onChange={(e) => setForm((f) => ({ ...f, riskReward: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="e.g. 1:2"
-                      />
-                    </GridField>
-                    <GridField label="Profit (P/L)">
-                      <input
-                        type="number"
-                        value={form.risk}
-                        onChange={(e) => setForm((f) => ({ ...f, risk: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="e.g. 250"
-                      />
-                    </GridField>
-                    <GridField label="Currency symbol">
-                      <input
-                        value={form.currencySymbol}
-                        onChange={(e) => setForm((f) => ({ ...f, currencySymbol: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="$, €, £, CHF, ¥"
-                      />
-                    </GridField>
-                    <GridField label="Entry date">
-                      <input
-                        value={form.entryDate}
-                        onChange={(e) => setForm((f) => ({ ...f, entryDate: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="DD.MM.YY"
-                      />
-                    </GridField>
-                    <GridField label="Entry time">
-                      <input
-                        value={form.time}
-                        onChange={(e) => setForm((f) => ({ ...f, time: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="HH:MM"
-                      />
-                    </GridField>
-                    <GridField label="Exit date">
-                      <input
-                        value={form.exitDate}
-                        onChange={(e) => setForm((f) => ({ ...f, exitDate: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="DD.MM.YY"
-                      />
-                    </GridField>
-                    <GridField label="Time zone">
-                      <input
-                        value={form.timeZone}
-                        onChange={(e) => setForm((f) => ({ ...f, timeZone: e.target.value }))}
-                        style={inputStyle(theme)}
-                        placeholder="e.g. UTC+1"
-                      />
-                    </GridField>
-                  </div>
+                  <textarea
+                    rows={4}
+                    value={form.positiveFeedback}
+                    onChange={(e) => updateField("positiveFeedback", e.target.value)}
+                    style={{ ...inputBase(theme), resize: "vertical" }}
+                  />
                 )}
               </section>
             )}
 
-            {/* Notes / Room for Improvement (NEUTRAL, ohne Farbhintergründe) */}
-            {(hasPos || isEdit || hasNeg) && (
-              <section style={{ display: "grid", gap: 12 }}>
-                {(hasPos || isEdit) && (
-                  <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14 }}>
-                    <div
-                      style={{
-                        padding: "10px 14px",
-                        color: theme.sub,
-                        fontWeight: 900,
-                        fontSize: 12,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                        borderBottom: `1px solid ${theme.border}`,
-                      }}
-                    >
-                      Notes (positive)
-                    </div>
-                    <div style={{ padding: 14, lineHeight: 1.6 }}>
-                      {isEdit ? (
-                        <textarea
-                          value={form.positiveFeedback}
-                          onChange={(e) => setForm((f) => ({ ...f, positiveFeedback: e.target.value }))}
-                          style={{ ...inputStyle(theme), minHeight: 90, resize: "vertical" }}
-                          placeholder="What went well…"
-                        />
-                      ) : (
-                        form.positiveFeedback
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {(hasNeg || isEdit) && (
-                  <div style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14 }}>
-                    <div
-                      style={{
-                        padding: "10px 14px",
-                        color: theme.sub,
-                        fontWeight: 900,
-                        fontSize: 12,
-                        textTransform: "uppercase",
-                        letterSpacing: 0.5,
-                        borderBottom: `1px solid ${theme.border}`,
-                      }}
-                    >
-                      Room for improvement
-                    </div>
-                    <div style={{ padding: 14, lineHeight: 1.6 }}>
-                      {isEdit ? (
-                        <textarea
-                          value={form.negativeFeedback}
-                          onChange={(e) => setForm((f) => ({ ...f, negativeFeedback: e.target.value }))}
-                          style={{ ...inputStyle(theme), minHeight: 90, resize: "vertical" }}
-                          placeholder="What to improve next time…"
-                        />
-                      ) : (
-                        form.negativeFeedback
-                      )}
-                    </div>
-                  </div>
+            {(form.negativeFeedback || isEdit) && (
+              <section style={section(theme)}>
+                <div style={label(theme)}>Room for improvement</div>
+                {!isEdit ? (
+                  <div style={{ lineHeight: 1.6 }}>{form.negativeFeedback}</div>
+                ) : (
+                  <textarea
+                    rows={4}
+                    value={form.negativeFeedback}
+                    onChange={(e) => updateField("negativeFeedback", e.target.value)}
+                    style={{ ...inputBase(theme), resize: "vertical" }}
+                  />
                 )}
               </section>
             )}
 
-            {/* Confluences */}
-            {(hasTags || isEdit) && (
-              <section style={{ background: theme.panel, border: `1px solid ${theme.border}`, borderRadius: 14, padding: 14 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* Confluences (eingefärbt nach gespeicherter Farbe) */}
+            {(form.confluenceEntries.length > 0 || isEdit) && (
+              <section style={section(theme)}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <FiTag size={16} style={{ color: theme.sub }} />
-                  <div
-                    style={{
-                      color: theme.sub,
-                      fontWeight: 900,
-                      fontSize: 12,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                    }}
-                  >
-                    Confluences
-                  </div>
+                  <div style={label(theme)}>Confluences</div>
                 </div>
 
                 {!isEdit ? (
-                  <div style={{ marginTop: 10 }}>
-                    <Tags list={form.confluenceEntries} theme={theme} paletteMap={confMap} />
-                  </div>
+                  <Tags list={form.confluenceEntries} theme={theme} />
                 ) : (
-                  <div style={{ display: "grid", gap: 10, marginTop: 10 }}>
-                    {/* Auswahl aus Palette */}
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {confList.map(({ text, color }) => {
-                        const active = form.confluenceEntries.some((c) => String(c.text).toLowerCase() === String(text).toLowerCase());
-                        return (
-                          <button
-                            key={text}
-                            onClick={() =>
-                              setForm((f) => {
-                                const exists = f.confluenceEntries.find(
-                                  (c) => String(c.text).toLowerCase() === String(text).toLowerCase()
-                                );
-                                return exists
-                                  ? { ...f, confluenceEntries: f.confluenceEntries.filter((c) => String(c.text).toLowerCase() !== String(text).toLowerCase()) }
-                                  : { ...f, confluenceEntries: [...f.confluenceEntries, { text, color }] };
-                              })
-                            }
+                  <>
+                    {/* Bestehende */}
+                    {form.confluenceEntries.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                        {form.confluenceEntries.map((c, idx) => (
+                          <span
+                            key={`${c.text}-${idx}`}
                             style={{
+                              display: "inline-flex",
+                              alignItems: "center",
+                              gap: 8,
                               padding: "6px 10px",
                               borderRadius: 10,
-                              background: rgba(color, active ? 0.22 : 0.12),
-                              border: `1px solid ${rgba(color, active ? 0.55 : 0.4)}`,
-                              color,
+                              background: rgba(c.color || "#2C60FA", 0.16),
+                              border: `1px solid ${rgba(c.color || "#2C60FA", 0.4)}`,
+                              color: c.color || "#2C60FA",
                               fontSize: 12,
-                              fontWeight: 700,
-                              cursor: "pointer",
+                              fontWeight: 600,
                             }}
-                            title={text}
                           >
-                            {active ? "✓ " : ""}{text}
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {/* Aktuelle Auswahl */}
-                    {form.confluenceEntries.length > 0 && (
-                      <div>
-                        <div style={{ color: theme.sub, fontSize: 12, marginBottom: 6 }}>Selected</div>
-                        <Tags list={form.confluenceEntries} theme={theme} paletteMap={confMap} />
+                            {c.text}
+                            <button
+                              onClick={() => removeConfluence(idx)}
+                              title="Remove"
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                color: theme.sub,
+                                cursor: "pointer",
+                                display: "grid",
+                                placeItems: "center",
+                              }}
+                            >
+                              <FiX size={14} />
+                            </button>
+                          </span>
+                        ))}
                       </div>
                     )}
-                  </div>
+
+                    {/* Hinzufügen */}
+                    <AddConfluence onAdd={addConfluence} theme={theme} />
+                  </>
                 )}
               </section>
             )}
           </div>
 
-          {/* RIGHT: Bildbereich (ein Bild groß, wählbar) + Edit-Tools */}
+          {/* RIGHT: Single image with selector + Edit Controls */}
           {showGallery || isEdit ? (
             <section style={{ display: "grid", gap: 10, alignContent: "start" }}>
-              {/* Hauptbild oder Platzhalter */}
-              <div
-                style={{
-                  borderRadius: 14,
-                  overflow: "hidden",
-                  background: theme.panel,
-                  border: `1px solid ${theme.border}`,
-                  minHeight: 220,
-                  display: "grid",
-                  placeItems: "center",
-                }}
-              >
-                {currentImg ? (
-                  <img src={currentImg} alt="" style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }} />
-                ) : (
-                  <div style={{ color: theme.sub, display: "grid", placeItems: "center", gap: 8, padding: 20 }}>
-                    <FiImage size={32} />
-                    <div style={{ fontSize: 13 }}>No image</div>
-                  </div>
-                )}
-              </div>
+              {/* Hauptbild */}
+              {showGallery && (
+                <div
+                  style={{
+                    borderRadius: 14,
+                    overflow: "hidden",
+                    background: theme.panel,
+                    border: `1px solid ${theme.border}`,
+                  }}
+                >
+                  <img
+                    src={currentImg}
+                    alt=""
+                    style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }}
+                  />
+                </div>
+              )}
 
               {/* Thumbnails */}
-              {imgs.length > 0 && (
+              {showGallery && (
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(60px,1fr))", gap: 8 }}>
-                  {imgs.map((src, i) => (
+                  {form.images.map((src, i) => (
                     <button
                       key={i}
                       onClick={() => setImgIdx(i)}
@@ -818,70 +852,97 @@ export default function TradeDetailModal({
                         cursor: "pointer",
                         background: "transparent",
                         height: 56,
-                        position: "relative",
                       }}
                       title={`Image ${i + 1}`}
                     >
                       <img src={src} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-                      {isEdit && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setForm((f) => ({ ...f, images: f.images.filter((_, idx) => idx !== i) }));
-                            if (imgIdx >= i && imgIdx > 0) setImgIdx(imgIdx - 1);
-                          }}
-                          title="Remove image"
-                          style={{
-                            position: "absolute",
-                            right: 4,
-                            top: 4,
-                            border: "none",
-                            background: "rgba(0,0,0,.5)",
-                            color: "#fff",
-                            width: 20,
-                            height: 20,
-                            borderRadius: 6,
-                            cursor: "pointer",
-                            fontSize: 12,
-                            lineHeight: "20px",
-                          }}
-                        >
-                          ×
-                        </button>
-                      )}
                     </button>
                   ))}
                 </div>
               )}
 
-              {/* Upload (nur Edit) */}
-              {isEdit && (
-                <label
-                  style={{
-                    border: `1px dashed ${theme.border}`,
-                    background: theme.panel,
-                    color: theme.sub,
-                    borderRadius: 12,
-                    padding: 12,
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 8,
-                    cursor: busy ? "default" : "pointer",
-                    opacity: busy ? 0.7 : 1,
-                  }}
-                >
-                  <FiPlus />
-                  {busy ? "Uploading…" : "Add images"}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={(e) => e.target.files && handleUploadFiles([...e.target.files])}
-                    style={{ display: "none" }}
-                    disabled={busy}
-                  />
-                </label>
-              )}
+              {/* Edit Controls für Bilder */}
+{isEdit && (
+  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+    {/* Add images */}
+    <label
+      htmlFor="tradeImages"
+      style={{
+        border: `1px solid ${theme.border}`,
+        background: theme.panel,
+        color: theme.text,
+        borderRadius: 10,
+        padding: "10px 12px",
+        fontWeight: 700,
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 8,
+        cursor: "pointer",
+        width: "fit-content",
+      }}
+    >
+      <FiImage /> Add images
+    </label>
+
+    {/* Hidden file input */}
+    <input
+      id="tradeImages"
+      type="file"
+      accept="image/*"
+      multiple
+      onChange={async (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+
+        const toDataURL = (file) =>
+          new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.readAsDataURL(file);
+          });
+
+        const urls = await Promise.all(files.map(toDataURL));
+        const next = [...(form.images || []), ...urls];
+
+        // Bilder in dein Formular-State schreiben
+        updateField("images", next);
+
+        // Input leeren, damit dieselbe Datei erneut gewählt werden kann
+        e.target.value = "";
+      }}
+      style={{ display: "none" }}
+    />
+
+    {/* Roter Mülleimer (löscht das zuletzt hinzugefügte Bild) */}
+    {(form.images?.length || 0) > 0 && (
+      <button
+        onClick={() => {
+          const next = [...form.images];
+          next.splice(next.length - 1, 1); // letztes Bild entfernen
+          updateField("images", next);
+        }}
+        title="Delete last image"
+        aria-label="Delete last image"
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: 10,
+          background: "transparent",
+          border: "1px solid #EE4E4E",
+          color: "#EE4E4E",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+        }}
+      >
+        <FiTrash2 size={18} />
+      </button>
+    )}
+  </div>
+)}
+
+
             </section>
           ) : null}
         </div>
@@ -890,26 +951,92 @@ export default function TradeDetailModal({
   );
 }
 
-/* ---- kleine UI-Bausteine ---- */
-function GridField({ label, children }) {
+function AddConfluence({ onAdd, theme }) {
+  const [text, setText] = useState("");
+  const [color, setColor] = useState("#2C60FA");
+
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "140px 1fr", gap: 10, alignItems: "center" }}>
-      <div style={{ color: "#8c93a7", fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5 }}>
-        {label}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "1fr 160px auto",
+        gap: 8,
+        alignItems: "center",
+      }}
+    >
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Confluence name"
+        style={inputBase(theme)}
+      />
+
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        {/* Runde, voll gefüllte Farbvorschau */}
+        <div
+          style={{
+            position: "relative",
+            width: 28,
+            height: 28,
+            flex: "0 0 28px",
+            borderRadius: "50%",
+            border: `1px solid ${theme.inputBorder}`,
+            overflow: "hidden",
+            boxSizing: "border-box",
+          }}
+          title="Pick color"
+        >
+          <div
+            aria-hidden
+            style={{
+              position: "absolute",
+              inset: 0,
+              background: color,
+            }}
+          />
+          <input
+            type="color"
+            aria-label="Pick color"
+            value={color}
+            onChange={(e) => setColor(e.target.value)}
+            style={{
+              position: "absolute",
+              inset: 0,
+              opacity: 0,
+              cursor: "pointer",
+              border: "none",
+              padding: 0,
+              margin: 0,
+            }}
+          />
+        </div>
+
+        <input
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          style={inputBase(theme)}
+          placeholder="#RRGGBB"
+        />
       </div>
-      <div>{children}</div>
+
+      <button
+        onClick={() => {
+          onAdd?.(text.trim(), color);
+          setText("");
+        }}
+        style={{
+          border: `1px solid ${theme.border}`,
+          background: theme.panel,
+          color: theme.text,
+          borderRadius: 10,
+          padding: "10px 12px",
+          fontWeight: 700,
+          cursor: "pointer",
+          whiteSpace: "nowrap",
+        }}
+      >
+        Add
+      </button>
     </div>
   );
-}
-function inputStyle(theme) {
-  return {
-    width: "100%",
-    background: theme.panel,
-    color: theme.text,
-    border: `1px solid ${theme.border}`,
-    borderRadius: 10,
-    padding: "10px 12px",
-    outline: "none",
-    fontSize: 14,
-  };
 }

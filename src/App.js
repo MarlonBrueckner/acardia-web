@@ -5,11 +5,12 @@ import Login from "./Login";
 import DashboardLayout from "./DashboardLayout";
 import DashboardHome from "./DashboardHome";
 import SessionsPage from "./SessionsPage";
-import StrategiesPage from "./StrategiesPage";
+
 import ChecklistsPage from "./ChecklistsPage";
 import JournalPage from "./JournalPage";
 import AnalyticsPage from "./AnalyticsPage";
 import SettingsPage from "./SettingsPage";
+import EconomicCalendar from "./tools/EconomicCalendar";
 
 // Dummy-Auth-Hook
 function useAuth() {
@@ -58,12 +59,24 @@ export default function App() {
           <Route path="/dashboard/*" element={<DashboardLayout />}>
             <Route index element={<DashboardHome />} />
             <Route path="sessions" element={<SessionsPage />} />
-            <Route path="strategies" element={<StrategiesPage />} />
+           
             <Route path="checklists" element={<ChecklistsPage />} />
             <Route path="journal" element={<JournalPage />} />
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
+           {/* TOOLS */}
+           <Route
+             path="tools/economic-calendar"
+            element={<EconomicCalendar dark={dark} setDark={setDark} />}
+           />
           </Route>
+
+         {/* Optionale Weiterleitung, falls irgendwo noch eine alte URL genutzt wird */}
+         <Route
+           path="/tools/EconomicCalendar"
+           element={<Navigate to="/dashboard/tools/economic-calendar" replace />}
+           
+         />
         </Routes>
       </BrowserRouter>
     </div>

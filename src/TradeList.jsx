@@ -195,7 +195,7 @@ function TradeRow({ dark, theme, t, currencySymbol, onClick }) {
       onFocus={(e) => (e.currentTarget.style.outline = `2px solid ${theme.accent}`)}
       onBlur={(e) => (e.currentTarget.style.outline = "none")}
     >
-      {/* Thumb */}
+      {/* Thumb (jetzt ohne Farb-Overlay, immer mit tintBorder umrandet) */}
       <div
         style={{
           width: window.innerWidth >= 1280 ? 84 : window.innerWidth < 640 ? 64 : 76,
@@ -203,60 +203,58 @@ function TradeRow({ dark, theme, t, currencySymbol, onClick }) {
           borderRadius: 12,
           overflow: "hidden",
           position: "relative",
-          border: `1px solid ${hasImg ? theme.cardBorder : borderTint}`,
-          background: hasImg ? theme.cardBg : overlay,
+          border: `1px solid ${borderTint}`,       // <<< einheitlich: getönter Rahmen
+          background: hasImg ? theme.cardBg : overlay, // kein Overlay bei Bild
           display: "grid",
           placeItems: "center",
         }}
       >
-        {hasImg ? (
-          <>
-            <img
-              src={t.images[0]}
-              alt=""
-              loading="lazy"
-              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-            />
-            <div
-              style={{
-                position: "absolute",
-                inset: 0,
-                background: dark
-                  ? `linear-gradient(135deg, rgba(${rgb.r},${rgb.g},${rgb.b},0) 0%, rgba(${rgb.r},${rgb.g},${rgb.b},0.08) 100%)`
-                  : `rgba(${rgb.r},${rgb.g},${rgb.b},0.08)`,
-              }}
-            />
-          </>
-        ) : (
-          // Wunsch: im Platzhalter RR anzeigen (keine Symbole)
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 700,
-              color: dark ? "#fff" : "#23232A",
-              padding: 6,
-              textAlign: "center",
-              lineHeight: 1.1,
-            }}
-          >
-            {t.riskReward ? `RR ${t.riskReward}` : "RR —"}
-          </div>
-        )}
+       {hasImg ? (
+  <>
+    <img
+      src={t.images[0]}
+      alt=""
+      loading="lazy"
+      style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+    />
+    {/* sehr leichte Einfärbung über dem Bild */}
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: dark
+          ? `linear-gradient(135deg, rgba(${rgb.r},${rgb.g},${rgb.b},0) 0%, rgba(${rgb.r},${rgb.g},${rgb.b},0.06) 100%)`
+          : `rgba(${rgb.r},${rgb.g},${rgb.b},0.06)`,
+      }}
+    />
+  </>
+) : (
+  // Platzhalter (unverändert)
+  <div
+    style={{
+      fontSize: 13,
+      fontWeight: 700,
+      color: dark ? "#fff" : "#23232A",
+      padding: 6,
+      textAlign: "center",
+      lineHeight: 1.1,
+    }}
+  >
+    {t.riskReward ? `RR ${t.riskReward}` : "RR —"}
+  </div>
+)}
+
       </div>
 
       {/* Mitte: Titel + Meta */}
       <div style={{ minWidth: 0, display: "grid", gap: 6 }}>
-        {/* Zeile 1 */}
         <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
           <div style={{ fontWeight: 700, fontSize: 15, color: theme.text, overflow: "hidden", textOverflow: "ellipsis" }}>
             {t.symbol || "—"}
           </div>
-          <div style={{ marginLeft: "auto", fontSize: 12, color: theme.sub }}>
-            {/* Zeit rechts von Meta gefordert: wir zeigen sie in Zeile 2, Datum rückt in die rechte Spalte */}
-          </div>
+          <div style={{ marginLeft: "auto", fontSize: 12, color: theme.sub }} />
         </div>
 
-        {/* Zeile 2: Buy/Sell • RR | Zeiten */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
           <span style={{ fontSize: 13, color: theme.sub }}>
             {t.position} • RR {t.riskReward || "—"}
@@ -264,20 +262,18 @@ function TradeRow({ dark, theme, t, currencySymbol, onClick }) {
           <span style={{ fontSize: 13, color: theme.sub }}>
             {timeStr(t.time)} → {timeStr(t.exitTime || t.timeZone || "—")}
           </span>
-
-          {/* Confluence Tags (mit Farbe aus Firestore, siehe Parent prop) */}
           <ConfluenceTags tags={t.confluenceEntries} theme={theme} />
         </div>
       </div>
 
-      {/* Rechts: Datum & P/L Pill (Datum vertikal mittig) */}
+      {/* Rechts: Datum & P/L Pill */}
       <div style={{ display: "grid", alignContent: "center", justifyItems: "end", gap: 6 }}>
         <div
           style={{
             padding: "4px 10px",
             borderRadius: 999,
             background: tintOverlay(dark, rgb),
-            border: `1px solid ${borderTint}`,
+            border: `1px solid ${tintBorder(dark, rgb)}`,
             color: pillColor,
             fontSize: 13,
             fontWeight: 800,
@@ -290,14 +286,19 @@ function TradeRow({ dark, theme, t, currencySymbol, onClick }) {
         </div>
 
         <div style={{ fontSize: 12, color: theme.sub, textAlign: "right", lineHeight: 1.2 }}>
-          {multiDay ? (
-            <>
-              {formatDate(entryD)} <span style={{ display: "inline-block", transform: "translateY(-1px)" }}>→</span>{" "}
-              {formatDate(exitD)}
-            </>
-          ) : (
-            formatDate(entryD)
-          )}
+          {(() => {
+            const entryD = parseDDMMYY(t.entryDate) || parseDDMMYY(t.date);
+            const exitD = parseDDMMYY(t.exitDate);
+            const multiDay = exitD && entryD && !sameDay(entryD, exitD);
+            return multiDay ? (
+              <>
+                {formatDate(entryD)} <span style={{ display: "inline-block", transform: "translateY(-1px)" }}>→</span>{" "}
+                {formatDate(exitD)}
+              </>
+            ) : (
+              formatDate(entryD)
+            );
+          })()}
         </div>
       </div>
     </button>
