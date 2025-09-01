@@ -170,14 +170,15 @@ export default function Sidebar({ dark, sidebarMin, setSidebarMin }) {
   );
 
   // Helfer: Button Style
-  const baseBtnStyle = (active: boolean) => ({
-    color: active ? navActiveColor : navText,
-    background: active ? navActiveBg : "transparent",
-    fontWeight: 600,
-    border: "none",
-    borderRadius: 13,
-    transition: "all .16s",
-  });
+const baseBtnStyle = (active: boolean) => ({
+  color: active ? navActiveColor : navText,
+  background: active ? navActiveBg : "transparent",
+  fontWeight: 600,
+  fontSize: 15,            // 🔵 gleiche Schriftgröße überall
+  border: "none",
+  borderRadius: 13,
+  transition: "all .16s",
+});
 
   // Aktiver Pfad auch für Tools-Subroutes
   const isActive = (path: string) => {
@@ -243,25 +244,27 @@ export default function Sidebar({ dark, sidebarMin, setSidebarMin }) {
   ))}
 
   {/* Tools (Dropdown) */}
-  <div style={{ marginTop: 2 }}> {/* Abstand kleiner gemacht */}
-    <button
-      onClick={() => setToolsOpen((v) => !v)}
-      style={{
-        ...baseBtnStyle(location.pathname.startsWith("/dashboard/tools")),
-        width: "100%"
-      }}
-      className={`flex items-center ${sidebarMin ? "justify-center" : "justify-between"} px-4 py-2.5`}
-    >
-      <div className={`flex items-center gap-3 ${sidebarMin ? "justify-center" : ""}`}>
-        <span className="text-lg"><FaTools /></span>
-        {!sidebarMin && <span>Tools</span>}
-      </div>
-      {!sidebarMin && (
-        <span className="text-sm" style={{ color: subText }}>
-          {toolsOpen ? <FaChevronRight /> : <FaChevronDown />} {/* Default nach unten */}
-        </span>
-      )}
-    </button>
+<div style={{ marginTop: 2 }}>
+  <button
+    onClick={() => setToolsOpen((v) => !v)}
+    style={{
+      ...baseBtnStyle(location.pathname.startsWith("/dashboard/tools")),
+      width: "100%",
+    }}
+    className={`flex items-center ${
+      sidebarMin ? "justify-center" : "justify-between"
+    } px-4 py-2.5`} // 🔵 KEIN text-[14px] mehr hier
+  >
+    <div className={`flex items-center gap-3 ${sidebarMin ? "justify-center" : ""}`}>
+      <span className="text-lg"><FaTools /></span>  {/* 🔵 Icon jetzt wie oben: text-lg */}
+      {!sidebarMin && <span>Tools</span>}
+    </div>
+    {!sidebarMin && (
+      <span className="text-sm" style={{ color: subText }}>
+        {toolsOpen ? <FaChevronRight /> : <FaChevronDown />}
+      </span>
+    )}
+  </button>
 
     {/* Dropdown-Content */}
     <div

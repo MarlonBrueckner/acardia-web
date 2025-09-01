@@ -74,10 +74,10 @@ async function handleEmailAuth(e) {
     );
     if (mode === "register") {
       await createUserWithEmailAndPassword(auth, email, password);
-      navigate("/dashboard");
+      navigate("/AnalyticsPage");
     } else {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate("/dashboard");
+      navigate("/AnalyticsPage");
     }
   } catch (err) {
     setError(friendlyError(err));
@@ -90,7 +90,7 @@ async function handleFacebook() {
   setLoading(true);
   try {
     await signInWithPopup(auth, facebookProvider);
-    navigate("/dashboard");
+    navigate("/AnalyticsPage");
   } catch (err) {
     setError(friendlyError(err));
   }
@@ -102,7 +102,7 @@ async function handleFacebook() {
     setLoading(true);
     try {
       await signInWithPopup(auth, twitterProvider);
-      navigate("/dashboard");
+      navigate("/AnalyticsPage");
     } catch (err) {
       setError(friendlyError(err));
     }
@@ -114,7 +114,7 @@ async function handleFacebook() {
     setLoading(true);
     try {
       await signInWithPopup(auth, googleProvider);
-      navigate("/dashboard");
+      navigate("/AnalyticsPage");
     } catch (err) {
       setError(friendlyError(err));
     }
