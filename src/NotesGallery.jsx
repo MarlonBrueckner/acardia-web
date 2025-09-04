@@ -142,98 +142,148 @@ export default function NotesGallery() {
   const noNotes = notes.length === 0;
 
   return (
-    <div style={{ padding: 16, minHeight: "100%", background: T.bg }}>
-      {/* Header (only when notes exist) */}
-      {!noNotes && (
-        <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14 }}>
-          <div
-            style={{
-              flex: 1, display: "flex", alignItems: "center", gap: 8,
-              background: T.card, border: `1px solid ${T.border}`,
-              borderRadius: 12, padding: "10px 12px"
-            }}
-          >
-            <FaSearch color={T.sub} />
-            <input
-              placeholder="Search notes…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{
-                flex: 1, background: "transparent", color: T.text, border: "none", outline: "none",
-                fontWeight: 600
-              }}
-            />
-          </div>
+  <div
+    style={{
+      padding: "8px 5px",        // 🔵 weniger horizontaler Abstand (statt 16px)
+      minHeight: "100%",
+      background: T.bg
+    }}
+  >
+    {/* Überschrift */}
+    <h1
+      style={{
+        margin: "-4px 0 12px 0",   // 🔵 kaum Abstand oben, etwas nach unten
+        fontSize: 34,             // größer
+        fontWeight: 700,
+        letterSpacing: 0.3,
+        color: T.text
+      }}
+    >
+      Notes
+    </h1>
 
-          {/* Import (.json) */}
-          <input
-            ref={importInputRef}
-            type="file"
-            accept="application/json"
-            onChange={importNotesFromFile}
-            style={{ display: "none" }}
-          />
-          <button
-            onClick={() => importInputRef.current?.click()}
-            title="Import notes (.json)"
-            aria-label="Import notes"
-            style={{
-              height: 42, width: 42, borderRadius: 12,
-              background: "transparent",
-              border: `1px solid ${T.border}`,
-              color: T.text,
-              display: "grid", placeItems: "center"
-            }}
-          >
-            <FaDownload />
-          </button>
-
-          {/* Create (icon-only) */}
-          <button
-            onClick={createNote}
-            title="Create note"
-            aria-label="Create note"
-            style={{
-              height: 42, width: 42, borderRadius: 12,
-              background: T.accent, color: "#fff", border: "none",
-              display: "grid", placeItems: "center",
-              boxShadow: "0 4px 16px rgba(44,96,250,.25)"
-            }}
-          >
-            <FaPlus />
-          </button>
-        </div>
-      )}
-
-      {!!error && (
-        <div style={{ color: T.bad, fontWeight: 700, marginBottom: 10 }}>
-          {error}
-        </div>
-      )}
-
-      {/* Empty-State */}
-      {noNotes ? (
-        <EmptyState T={T} onCreate={createNote} creating={creating} onImport={() => importInputRef.current?.click()} />
-      ) : (
+    {/* Header (nur wenn Notes existieren) */}
+    {!noNotes && (
+      <div
+        style={{
+          display: "flex",
+          gap: 10,
+          alignItems: "center",
+          marginBottom: 12
+        }}
+      >
         <div
           style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-            gap: 12,
+            flex: 1,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            background: T.card,
+            border: `1px solid ${T.border}`,
+            borderRadius: 12,
+            padding: "8px 10px"   // 🔵 kompakter
           }}
         >
-          {filtered.map((n) => (
-            <NoteTile
-              key={n.id}
-              T={T}
-              note={n}
-              onClick={() => nav(`/dashboard/notes/${n.id}`)}
-            />
-          ))}
+          <FaSearch color={T.sub} />
+          <input
+            placeholder="Search notes…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{
+              flex: 1,
+              background: "transparent",
+              color: T.text,
+              border: "none",
+              outline: "none",
+              fontWeight: 600
+            }}
+          />
         </div>
-      )}
-    </div>
-  );
+
+        {/* Import (.json) */}
+        <input
+          ref={importInputRef}
+          type="file"
+          accept="application/json"
+          onChange={importNotesFromFile}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => importInputRef.current?.click()}
+          title="Import notes (.json)"
+          aria-label="Import notes"
+          style={{
+            height: 40,
+            width: 40,
+            borderRadius: 12,
+            background: "transparent",
+            border: `1px solid ${T.border}`,
+            color: T.text,
+            display: "grid",
+            placeItems: "center"
+          }}
+        >
+          <FaDownload />
+        </button>
+
+        {/* Create (icon-only) */}
+        <button
+          onClick={createNote}
+          title="Create note"
+          aria-label="Create note"
+          style={{
+            height: 40,
+            width: 40,
+            borderRadius: 12,
+            background: T.accent,
+            color: "#fff",
+            border: "none",
+            display: "grid",
+            placeItems: "center",
+            boxShadow: "0 4px 16px rgba(44,96,250,.25)"
+          }}
+        >
+          <FaPlus />
+        </button>
+      </div>
+    )}
+
+    {!!error && (
+      <div style={{ color: T.bad, fontWeight: 700, marginBottom: 10 }}>
+        {error}
+      </div>
+    )}
+
+    {/* Empty-State oder Notes-Grid */}
+    {noNotes ? (
+      <EmptyState
+        T={T}
+        onCreate={createNote}
+        creating={creating}
+        onImport={() => importInputRef.current?.click()}
+      />
+    ) : (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
+          gap: 10,                 // 🔵 enger
+        }}
+      >
+        {filtered.map((n) => (
+          <NoteTile
+            key={n.id}
+            T={T}
+            note={n}
+            onClick={() => nav(`/dashboard/notes/${n.id}`)}
+          />
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+
 }
 
 function EmptyState({ T, onCreate, creating, onImport }) {

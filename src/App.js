@@ -13,29 +13,29 @@ import JournalPage from "./JournalPage";
 import AnalyticsPage from "./AnalyticsPage";
 import SettingsPage from "./SettingsPage";
 
+import LotSizeCalculator from "./tools/LotSizeCalculator";
 import EconomicCalendar from "./tools/EconomicCalendar";
-import NotesPage from "./NotesPage";
-// OPTIONAL: Wenn du einen Einzel-Editor hast, kommentiere es ein
-// import NoteEditor from "./notes/NoteEditor";
+
+import WinrateCalculator from "./tools/WinrateCalculator";
+import NotesPage from "./NotesPage"; // Falls dein NotesPage in /notes/ liegt, ggf. anpassen
+// import NoteEditor from "./notes/NoteEditor"; // optionaler Einzel-Editor
 
 // --- Dummy-Auth-Hook ---
 function useAuth() {
   return { isLoggedIn: localStorage.getItem("isLoggedIn") === "true" };
 }
 
-// --- Wrapper für LandingPage: Ist der User eingeloggt, direkt ins Dashboard ---
+// --- Wrapper: Eingeloggt? -> direkt ins Dashboard ---
 function RedirectIfLoggedIn({ children }) {
   const { isLoggedIn } = useAuth();
-  if (isLoggedIn) {
-    // Ziel: Dashboard-Analytics
-    return <Navigate to="/dashboard/analytics" replace />;
-  }
+  if (isLoggedIn) return <Navigate to="/dashboard/analytics" replace />;
   return children;
 }
 
 export default function App() {
   // Darkmode global steuern
   const [dark, setDark] = useState(() => {
+    // Default: true (wenn nicht explizit "false")
     return localStorage.getItem("darkMode") === "false" ? false : true;
   });
 
@@ -67,8 +67,8 @@ export default function App() {
           <Route path="/login" element={<Login dark={dark} setDark={setDark} />} />
 
           {/* Dashboard + Kindrouten */}
-          <Route path="/dashboard/*" element={<DashboardLayout />}>
-            {/* Startseite des Dashboards */}
+       <Route path="/dashboard/*" element={<DashboardLayout dark={dark} setDark={setDark} />}>
+            {/* Startseite */}
             <Route index element={<DashboardHome />} />
 
             {/* Hauptbereiche */}
@@ -78,26 +78,45 @@ export default function App() {
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
-            {/* Notes (Galerie) */}
+            {/* Notes (Galerie + Detail) */}
             <Route path="notes" element={<NotesPage dark={dark} />} />
-             <Route path="notes/:id" element={<NotesPage />} />
-            {/* OPTIONAL: Einzel-Editor (nur falls vorhanden) */}
-            {/* <Route path="notes/:noteId" element={<NoteEditor dark={dark} />} /> */}
+            <Route path="notes/:id" element={<NotesPage dark={dark} />} />
+            {/* Optional einzelner Editor:
+            <Route path="notes/:noteId" element={<NoteEditor dark={dark} />} /> */}
 
-            {/* Tools → Economic Calendar (im Dashboard-Namespace) */}
-            <Route
-              path="tools/economic-calendar"
-              element={<EconomicCalendar dark={dark} setDark={setDark} />}
-            />
+            {/* TOOLS im Dashboard-Namespace */}
+           <Route path="tools/economic-calendar" element={<EconomicCalendar />} />
+   <Route path="tools/lot-size" element={<LotSizeCalculator />} />
           </Route>
 
-          {/* Legacy/Externe Pfade → sauber umbiegen */}
+          {/* ---------- Legacy/Externe Pfade → Redirects ---------- */}
+          {/* Economic Calendar */}
           <Route
             path="/tools/EconomicCalendar"
             element={<Navigate to="/dashboard/tools/economic-calendar" replace />}
           />
+          <Route
+            path="/tools/economic-calendar"
+            element={<Navigate to="/dashboard/tools/economic-calendar" replace />}
+          />
 
-          {/* Fallback 404 → ins Dashboard */}
+          {/* Lot Size Calculator */}
+          {/* Unterstützt Sidebar-Links wie /tools/LotSizeCalculator und /tools/lot-size */}
+          <Route
+            path="/tools/LotSizeCalculator"
+            element={<Navigate to="/dashboard/tools/lot-size" replace />}
+          />
+          <Route
+            path="/tools/lot-size"
+            element={<Navigate to="/dashboard/tools/lot-size" replace />}
+          />
+          {/* Optional: Falls mal /dashboard/tools/LotSizeCalculator verlinkt wurde */}
+          <Route
+            path="/dashboard/tools/LotSizeCalculator"
+            element={<Navigate to="/dashboard/tools/lot-size" replace />}
+          />
+
+          {/* Fallback 404 → Dashboard */}
           <Route path="*" element={<Navigate to="/dashboard/analytics" replace />} />
         </Routes>
       </BrowserRouter>

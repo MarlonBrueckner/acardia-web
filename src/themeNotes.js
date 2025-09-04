@@ -4,7 +4,7 @@ export const themeSet = {
     text: "#fff",
     sub: "#BFC4CF",
     card: "#181818",
-    border: "rgba(43, 47, 54, 1)",
+    border: "#2a2a2f",
     grid: "#181818",
     accent: "#2c60fa",
     good: "#1cbf73",

@@ -158,7 +158,7 @@ const CONF_COLORS = ["#ff9f1a", "#00c3a3", "#a06bff", "#ff5ea0", "#00d0ff", "#ff
   const [trades, setTrades] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const [range, setRange] = useState("Month");
+  const [range, setRange] = useState("Year");
   const [from, setFrom] = useState(null);
   const [to, setTo] = useState(null);
 // in deiner Component:
@@ -435,6 +435,7 @@ const gradNegId = "barNegMonthly";
   {/* Überschrift */}
   <h1
     style={{
+            marginTop: 10,  
       margin: 0,
       color: T.text,
       fontSize: 34,

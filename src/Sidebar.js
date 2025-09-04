@@ -28,8 +28,8 @@ const primaryItems = [
 /* ------- Tools (Dropdown) ------- */
 const toolItems = [
   { label: "Economic Calendar",   icon: <FaCalendarAlt />, path: "/tools/EconomicCalendar"},
-  { label: "Lot Size Calculator", icon: <FaCalculator />,  path: "/dashboard/tools/lot-size" },
-  { label: "Winrate Calculator",  icon: <FaPercentage />,  path: "/dashboard/tools/winrate" }
+  { label: "Lot Size Calculator", icon: <FaCalculator />,  path: "/tools/LotSizeCalculator" },
+  { label: "Winrate Calculator",  icon: <FaPercentage />,  path: "/tools/WinrateCalculator" }
 ];
 
 export default function Sidebar({ dark, sidebarMin, setSidebarMin }) {

@@ -97,7 +97,7 @@ export default function JournalPage() {
   }, [db, uid]);
 
   return (
-    <div style={{ padding: "0 8px 24px" }}>
+    <div style={{ padding: "0 5px 10px" }}>
       <style>{`
         ::-webkit-scrollbar{display:none}
         *{-ms-overflow-style:none;scrollbar-width:none}
@@ -109,7 +109,7 @@ export default function JournalPage() {
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          margin: "8px 0 14px",
+          margin: "8px 0 10px",
         }}
       >
         <h1

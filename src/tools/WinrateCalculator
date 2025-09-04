@@ -1,0 +1,303 @@
+// src/tools/WinrateCalculator.jsx
+import { useEffect, useState, useMemo } from "react";
+import { getAuth } from "firebase/auth";
+import { getFirestore, collection, onSnapshot } from "firebase/firestore";
+import { FaChevronDown } from "react-icons/fa";
+
+export default function WinrateCalculator({ dark }) {
+  const T = theme(dark);
+  const auth = getAuth();
+  const db = getFirestore();
+  const uid = auth.currentUser?.uid;
+
+  // 🔹 States
+  const [trades, setTrades] = useState([]);
+  const [selectedPair, setSelectedPair] = useState("");
+  const [selectedPosition, setSelectedPosition] = useState("Buy");
+  const [selectedDay, setSelectedDay] = useState("Mon");
+  const [selectedConfluences, setSelectedConfluences] = useState({});
+  const [winRate, setWinRate] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // 🔹 Trades live aus Firestore
+  useEffect(() => {
+    if (!uid) return;
+    const unsub = onSnapshot(collection(db, "users", uid, "trades"), (snap) => {
+      setTrades(snap.docs.map((d) => d.data()));
+    });
+    return unsub;
+  }, [uid, db]);
+
+  // 🔹 Hilfsfunktionen
+  const uniquePairs = useMemo(() => {
+    return [...new Set(trades.map((t) => t.symbol))].sort();
+  }, [trades]);
+
+  const weekdays = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+
+  function dayOfWeek(dateString) {
+    const [dd, mm, yyyy] = dateString.split(".");
+    const d = new Date(`${yyyy}-${mm}-${dd}`);
+    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    return days[d.getDay()];
+  }
+
+  // 🔹 Winrate Berechnung (wie iOS)
+  function calculateWinrate() {
+    if (trades.length === 0) return;
+    setLoading(true);
+
+    setTimeout(() => {
+      let weighted = 0;
+      let totalWeight = 0;
+
+      // Confluences
+      const confluences = Object.keys(selectedConfluences).filter(
+        (c) => selectedConfluences[c]
+      );
+      if (confluences.length > 0) {
+        const filtered = trades.filter((t) =>
+          confluences.every((c) => t.confluences?.includes(c))
+        );
+        const wins = filtered.filter((t) => t.outcome === "Win").length;
+        const total = filtered.length;
+        if (total > 0) {
+          weighted += (wins / total) * 100 * 0.2;
+          totalWeight += 0.2;
+        }
+      }
+
+      // Symbol
+      if (selectedPair) {
+        const filtered = trades.filter((t) => t.symbol === selectedPair);
+        const wins = filtered.filter((t) => t.outcome === "Win").length;
+        if (filtered.length > 0) {
+          weighted += (wins / filtered.length) * 100 * 0.15;
+          totalWeight += 0.15;
+        }
+      }
+
+      // Day
+      if (selectedDay) {
+        const filtered = trades.filter(
+          (t) => dayOfWeek(t.date) === selectedDay
+        );
+        const wins = filtered.filter((t) => t.outcome === "Win").length;
+        if (filtered.length > 0) {
+          weighted += (wins / filtered.length) * 100 * 0.15;
+          totalWeight += 0.15;
+        }
+      }
+
+      // Position
+      if (selectedPosition) {
+        const filtered = trades.filter(
+          (t) => t.position === selectedPosition
+        );
+        const wins = filtered.filter((t) => t.outcome === "Win").length;
+        if (filtered.length > 0) {
+          weighted += (wins / filtered.length) * 100 * 0.05;
+          totalWeight += 0.05;
+        }
+      }
+
+      setWinRate(totalWeight > 0 ? weighted / totalWeight : null);
+      setLoading(false);
+    }, 1000);
+  }
+
+  return (
+    <div style={{ background: T.bg, minHeight: "100%", color: T.text, padding: "20px 24px" }}>
+      <h1
+        style={{
+          margin: "8px 0 14px",
+          fontSize: 32,
+          fontWeight: 800,
+          color: T.text,
+        }}
+      >
+        Winrate Calculator
+      </h1>
+
+      {/* Symbol Auswahl */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontWeight: 600, fontSize: 13, display: "block", marginBottom: 6 }}>
+          Symbol
+        </label>
+        <div
+          onClick={() => setDropdownOpen(!dropdownOpen)}
+          style={{
+            padding: "10px 12px",
+            borderRadius: 8,
+            border: `1px solid ${T.border}`,
+            background: T.card,
+            cursor: "pointer",
+            display: "flex",
+            justifyContent: "space-between",
+          }}
+        >
+          {selectedPair || "Select symbol"}
+          <FaChevronDown />
+        </div>
+        {dropdownOpen && (
+          <div
+            style={{
+              marginTop: 4,
+              border: `1px solid ${T.border}`,
+              borderRadius: 8,
+              background: T.card,
+              maxHeight: 200,
+              overflowY: "auto",
+            }}
+          >
+            {uniquePairs.map((p) => (
+              <div
+                key={p}
+                onClick={() => {
+                  setSelectedPair(p);
+                  setDropdownOpen(false);
+                }}
+                style={{
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  borderBottom: `1px solid ${T.border}`,
+                }}
+              >
+                {p}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Position */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontWeight: 600, fontSize: 13, display: "block", marginBottom: 6 }}>
+          Position
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          {["Buy", "Sell"].map((pos) => (
+            <button
+              key={pos}
+              onClick={() => setSelectedPosition(pos)}
+              style={{
+                flex: 1,
+                padding: "10px",
+                borderRadius: 8,
+                border: `1px solid ${selectedPosition === pos ? T.accent : T.border}`,
+                background: selectedPosition === pos ? T.accent : "transparent",
+                color: selectedPosition === pos ? "#fff" : T.text,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {pos}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Day of Week */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontWeight: 600, fontSize: 13, display: "block", marginBottom: 6 }}>
+          Day of the Week
+        </label>
+        <div style={{ display: "flex", gap: 10 }}>
+          {weekdays.map((d) => (
+            <button
+              key={d}
+              onClick={() => setSelectedDay(d)}
+              style={{
+                flex: 1,
+                padding: "10px",
+                borderRadius: 8,
+                border: `1px solid ${selectedDay === d ? T.accent : T.border}`,
+                background: selectedDay === d ? T.accent : "transparent",
+                color: selectedDay === d ? "#fff" : T.text,
+                fontWeight: 600,
+                cursor: "pointer",
+              }}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Confluences (nur Beispiel: du kannst deine Liste dynamisch aus Firestore ziehen) */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontWeight: 600, fontSize: 13, display: "block", marginBottom: 6 }}>
+          Confluences
+        </label>
+        {["Trendline", "Support", "RSI"].map((c) => (
+          <div key={c} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+            <input
+              type="checkbox"
+              checked={!!selectedConfluences[c]}
+              onChange={() =>
+                setSelectedConfluences((prev) => ({
+                  ...prev,
+                  [c]: !prev[c],
+                }))
+              }
+            />
+            <span>{c}</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Button */}
+      <button
+        onClick={calculateWinrate}
+        disabled={loading}
+        style={{
+          marginTop: 10,
+          width: "100%",
+          padding: "14px",
+          borderRadius: 10,
+          border: "none",
+          background: T.accent,
+          color: "#fff",
+          fontWeight: 700,
+          fontSize: 15,
+          cursor: "pointer",
+          boxShadow: "0 0 12px rgba(44,96,250,.5)",
+        }}
+      >
+        {loading ? "Calculating..." : "Calculate Winrate"}
+      </button>
+
+      {/* Result */}
+      {winRate !== null && (
+        <div
+          style={{
+            marginTop: 20,
+            padding: 20,
+            borderRadius: 12,
+            border: `2px solid ${T.accent}`,
+            background: T.card,
+            fontWeight: 800,
+            fontSize: 20,
+            textAlign: "center",
+            boxShadow: "0 0 16px rgba(44,96,250,.4)",
+          }}
+        >
+          Winrate: {winRate.toFixed(2)}%
+        </div>
+      )}
+    </div>
+  );
+}
+
+// --- Farben wie in Notes/LotSize ---
+function theme(dark) {
+  return {
+    bg: dark ? "#1f1f1f" : "#fff",
+    text: dark ? "#fff" : "#121316",
+    card: dark ? "#23232a" : "#f9f9f9",
+    border: dark ? "#3a3a42" : "#ddd",
+    sub: dark ? "#bbb" : "#555",
+    accent: "#2c60fa",
+  };
+}
