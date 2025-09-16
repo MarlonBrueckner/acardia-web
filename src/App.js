@@ -2,6 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 
+/* Pages */
 import LandingPage from "./LandingPage";
 import Login from "./Login";
 
@@ -13,19 +14,20 @@ import JournalPage from "./JournalPage";
 import AnalyticsPage from "./AnalyticsPage";
 import SettingsPage from "./SettingsPage";
 
+/* Notes */
+import NotesPage from "./NotesPage";
+
+/* Tools */
 import LotSizeCalculator from "./tools/LotSizeCalculator";
 import EconomicCalendar from "./tools/EconomicCalendar";
-
 import WinrateCalculator from "./tools/WinrateCalculator";
-import NotesPage from "./NotesPage"; // Falls dein NotesPage in /notes/ liegt, ggf. anpassen
-// import NoteEditor from "./notes/NoteEditor"; // optionaler Einzel-Editor
 
-// --- Dummy-Auth-Hook ---
+/* --- Dummy-Auth-Hook --- */
 function useAuth() {
   return { isLoggedIn: localStorage.getItem("isLoggedIn") === "true" };
 }
 
-// --- Wrapper: Eingeloggt? -> direkt ins Dashboard ---
+/* --- Wrapper: Eingeloggt? -> direkt ins Dashboard --- */
 function RedirectIfLoggedIn({ children }) {
   const { isLoggedIn } = useAuth();
   if (isLoggedIn) return <Navigate to="/dashboard/analytics" replace />;
@@ -55,7 +57,7 @@ export default function App() {
     >
       <BrowserRouter>
         <Routes>
-          {/* Public */}
+          {/* ---------- Public ---------- */}
           <Route
             path="/"
             element={
@@ -66,8 +68,11 @@ export default function App() {
           />
           <Route path="/login" element={<Login dark={dark} setDark={setDark} />} />
 
-          {/* Dashboard + Kindrouten */}
-       <Route path="/dashboard/*" element={<DashboardLayout dark={dark} setDark={setDark} />}>
+          {/* ---------- Dashboard + Kindrouten ---------- */}
+          <Route
+            path="/dashboard/*"
+            element={<DashboardLayout dark={dark} setDark={setDark} />}
+          >
             {/* Startseite */}
             <Route index element={<DashboardHome />} />
 
@@ -78,15 +83,23 @@ export default function App() {
             <Route path="analytics" element={<AnalyticsPage />} />
             <Route path="settings" element={<SettingsPage />} />
 
-            {/* Notes (Galerie + Detail) */}
+            {/* Notes */}
             <Route path="notes" element={<NotesPage dark={dark} />} />
             <Route path="notes/:id" element={<NotesPage dark={dark} />} />
-            {/* Optional einzelner Editor:
-            <Route path="notes/:noteId" element={<NoteEditor dark={dark} />} /> */}
 
-            {/* TOOLS im Dashboard-Namespace */}
-           <Route path="tools/economic-calendar" element={<EconomicCalendar />} />
-   <Route path="tools/lot-size" element={<LotSizeCalculator />} />
+            {/* TOOLS im Dashboard-Namespace -> alle bekommen dark */}
+            <Route
+              path="tools/economic-calendar"
+              element={<EconomicCalendar dark={dark} />}
+            />
+            <Route
+              path="tools/lot-size"
+              element={<LotSizeCalculator dark={dark} />}
+            />
+            <Route
+              path="tools/winrate"
+              element={<WinrateCalculator dark={dark} />}
+            />
           </Route>
 
           {/* ---------- Legacy/Externe Pfade → Redirects ---------- */}
@@ -101,7 +114,6 @@ export default function App() {
           />
 
           {/* Lot Size Calculator */}
-          {/* Unterstützt Sidebar-Links wie /tools/LotSizeCalculator und /tools/lot-size */}
           <Route
             path="/tools/LotSizeCalculator"
             element={<Navigate to="/dashboard/tools/lot-size" replace />}
@@ -110,13 +122,26 @@ export default function App() {
             path="/tools/lot-size"
             element={<Navigate to="/dashboard/tools/lot-size" replace />}
           />
-          {/* Optional: Falls mal /dashboard/tools/LotSizeCalculator verlinkt wurde */}
           <Route
             path="/dashboard/tools/LotSizeCalculator"
             element={<Navigate to="/dashboard/tools/lot-size" replace />}
           />
 
-          {/* Fallback 404 → Dashboard */}
+          {/* Winrate Calculator */}
+          <Route
+            path="/tools/WinrateCalculator"
+            element={<Navigate to="/dashboard/tools/winrate" replace />}
+          />
+          <Route
+            path="/tools/winrate"
+            element={<Navigate to="/dashboard/tools/winrate" replace />}
+          />
+          <Route
+            path="/dashboard/tools/WinrateCalculator"
+            element={<Navigate to="/dashboard/tools/winrate" replace />}
+          />
+
+          {/* ---------- Fallback 404 → Dashboard ---------- */}
           <Route path="*" element={<Navigate to="/dashboard/analytics" replace />} />
         </Routes>
       </BrowserRouter>
