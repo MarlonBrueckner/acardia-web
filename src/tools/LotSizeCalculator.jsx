@@ -1,5 +1,49 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { useOutletContext } from "react-router-dom";
+
+/** ---- globales Dark-Flag lesen ---- */
+function getDomDark() {
+  const de = document.documentElement;
+  const attr = de.getAttribute("data-theme");
+  if (attr === "dark") return true;
+  if (attr === "light") return false;
+  // fallback: body.classList
+  if (document.body.classList.contains("dark")) return true;
+  // fallback: localStorage
+  const ls = localStorage.getItem("darkMode");
+  if (ls === "true") return true;
+  if (ls === "false") return false;
+  // letzter fallback: OS
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false;
+}
+
+function useGlobalDark() {
+  const [dark, setDark] = useState(getDomDark);
+
+  useEffect(() => {
+    // beobachte data-theme / class-Änderungen
+    const mo = new MutationObserver(() => setDark(getDomDark()));
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
+    mo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+
+    // storage (wenn ein anderer Tab das ändert)
+    const onStorage = (e) => { if (e.key === "darkMode") setDark(getDomDark()); };
+    window.addEventListener("storage", onStorage);
+
+    // OS-scheme
+    const mql = window.matchMedia?.("(prefers-color-scheme: dark)");
+    const onMql = () => setDark(getDomDark());
+    mql?.addEventListener?.("change", onMql);
+
+    return () => {
+      mo.disconnect();
+      window.removeEventListener("storage", onStorage);
+      mql?.removeEventListener?.("change", onMql);
+    };
+  }, []);
+
+  return dark;
+}
 
 /** ---- Theme (liest Darkmode aus Context oder Prop) ---- */
 const theme = (dark = false) => ({
@@ -75,7 +119,8 @@ function buildNotes({ symbol, accountCcy, price, quoteToAccount, pipSize, contra
 /** ---- Hauptkomponente ---- */
 export default function LotSizeCalculator(props) {
   const ctx = useOutletContext?.() || {};
-  const dark = props.dark ?? ctx.dark ?? false;   // ← kommt vom Layout
+  const globalDark = useGlobalDark();
+  const dark = (props.dark ?? ctx.dark ?? globalDark); // folgt automatisch dem App-Theme
   const T = theme(dark);
 
   // Eingaben
@@ -440,7 +485,7 @@ function ReadOnly({ T, value }) {
         padding: "10px 12px",
         borderRadius: 10,
         border: `1px solid ${T.border}`,
-        background: T.dark ? "#151922" : "#f2f5fb",
+         background: T.dark ? "#111521" : "#f7faff",
         fontWeight: 800,
       }}
     >
@@ -456,7 +501,7 @@ function ResultBox({ T, value }) {
         padding: "12px 14px",
         borderRadius: 12,
         border: `2px solid ${T.accent}`,
-        background: T.dark ? "#111521" : "#f7faff",
+         background: T.dark ? "#111521" : "#f7faff",
         fontWeight: 900,
         boxShadow:
           `0 0 0 3px rgba(44,96,250,.12),

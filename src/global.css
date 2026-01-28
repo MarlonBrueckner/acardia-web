@@ -1,0 +1,9 @@
+html, body {
+  background-color: #1f1f1f; /* oder dein TopBar-Farbwert */
+  margin: 0;
+  padding: 0;
+}
+
+header {
+  padding-top: env(safe-area-inset-top);
+}

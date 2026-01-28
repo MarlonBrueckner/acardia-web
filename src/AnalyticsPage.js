@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
+
 import {
   getFirestore,
   collection,
@@ -11,17 +12,20 @@ import {
   getDoc,
 } from "firebase/firestore";
 
+import { useNavigate, useLocation } from "react-router-dom";
+ import { FiStar } from "react-icons/fi";
+
 import {
   ResponsiveContainer,
   AreaChart, Area,
-  LineChart, Line,
+   Line,
   BarChart, Bar,
   PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, Legend, CartesianGrid,
   RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ReferenceLine,
   ComposedChart,      // NEW
-  ScatterChart, Scatter, ZAxis,   Brush,    // NEW
+       Brush,    // NEW
 } from "recharts";
 
 
@@ -53,14 +57,17 @@ const themeSet = {
     kpiShadow: "0 14px 24px rgba(30,36,64,.12)",
   },
 };
+
 const useTheme = (dark) => useMemo(() => (dark ? themeSet.dark : themeSet.light), [dark]);
 const PINK = "#FF69B4";
 const OUTCOME_COLORS = { win: "#1cbf73", loss: "#ee4e4e", be: "#8C96AA" };
-const GOLD = "#FFD700";
+
 
 const fmtCurrencyTick = (currency) => (v) =>
   `${v < 0 ? "-" : ""}${currency}${Math.abs(v)}`;
 const fmtPercentTick = (v) => `${Math.round(v)}%`;
+
+
 
 
 function useViewport() {
@@ -138,31 +145,85 @@ async function loadUserCurrencySymbol(db, uid){
   try {
     const snap = await getDoc(doc(db,"users",uid));
     const code = snap.exists() ? snap.data()?.currency : null;
+    
     return CURRENCY_SYMBOL[code] || "$";
   } catch { return "$"; }
 }
 
 /* ---------------- Component ---------------- */
 export default function AnalyticsPage() {
-  const { dark } = useOutletContext();
+  const { dark, userDoc } = useOutletContext();   // ⬅ userDoc aus dem Layout holen
   const T = useTheme(dark);
   const db = getFirestore();
-  const uid = getAuth().currentUser?.uid;
+  const [isPro, setIsPro] = useState(false);
+  const [hasStripeCustomer, setHasStripeCustomer] = useState(false);
+
+  useEffect(() => {
+  if (!userDoc) return;
+  setIsPro(isProUser(userDoc));     // ⬅ Advanced & Pro = true, Free = false
+}, [userDoc]);
+
+
 
 const { isPhone, isTablet } = useViewport();
-const gridCols = isPhone ? "repeat(1, 1fr)" : isTablet ? "repeat(6, 1fr)" : "repeat(12, 1fr)";
 const stackCharts = useMediaMax(980); // <– bei <= 980px untereinander
-const CONF_COLORS = ["#ff9f1a", "#00c3a3", "#a06bff", "#ff5ea0", "#00d0ff", "#ffaa00"];
+
+const navigate = useNavigate();
+ const location = useLocation();
+ // Beim Klick bleibst du auf der aktuellen Seite (optional: Soft-Reload)
+  const goUpgrade = () => navigate("/dashboard/settings?tab=subscription");
 
   const [currency, setCurrency] = useState("$");
-  const [trades, setTrades] = useState([]);
-  const [loading, setLoading] = useState(true);
 
-  const [range, setRange] = useState("Year");
+  const [loading, setLoading] = useState(true); 
+const isSmallPhone = useMediaMax(430);
+  const [range, setRange] = useState("All");
   const [from, setFrom] = useState(null);
   const [to, setTo] = useState(null);
 // in deiner Component:
 const [bmMode, setBmMode] = useState("winners"); // "winners" | "losers"
+  const [uid, setUid] = useState(null);
+  useEffect(() => {
+    const off = onAuthStateChanged(getAuth(), (u) => setUid(u?.uid ?? null));
+    return off; // cleanup
+  }, []);
+
+    const [trades, setTrades] = useState([]);
+   
+
+// ✅ All Time Bounds (muss VOR useEffect(range...) stehen!)
+const allTimeBounds = useMemo(() => {
+  const dates = (trades || [])
+    .map(t => combine(t.entryDate || t.date, t.time) || parseDDMMYY(t.entryDate || t.date))
+    .filter(Boolean)
+    .sort((a, b) => a - b);
+
+  if (!dates.length) return { from: null, to: null };
+
+  return {
+    from: startOfDay(dates[0]),
+    to: endOfDay(dates[dates.length - 1]),
+  };
+}, [trades]);
+
+  useEffect(() => {
+    if (!uid) { setTrades([]); return; }
+
+    // wähle ein existierendes Feld für orderBy, oder lass es weg
+    const qRef = query(
+      collection(db, "users", uid, "trades"),
+      // orderBy("entryDate", "asc") // nur falls vorhanden
+    );
+
+    const unsub = onSnapshot(
+      qRef,
+      (snap) => setTrades(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+      (err) => { console.error("trades onSnapshot error:", err); setTrades([]); }
+    );
+
+    return unsub; // cleanup beim Verlassen der Seite
+  }, [db, uid]);
+
 
 // Buttons neben dem Titel: klar “Win / Loss”
 const bubbleActions = (
@@ -244,27 +305,57 @@ useEffect(() => {
     loadUserCurrencySymbol(db, uid).then(setCurrency);
   }, [db, uid]);
 
-  // live trades
-  useEffect(() => {
-    if (!uid) return;
-    setLoading(true);
-    const q = query(collection(db, "users", uid, "trades"), orderBy("date", "desc"));
-    const unsub = onSnapshot(q, (snap) => {
-      const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      setTrades(items);
-      setLoading(false);
-    });
-    return unsub;
-  }, [db, uid]);
+useEffect(() => {
+  if (!uid) return;
+  const qRef = query(
+    collection(db, "users", uid, "trades"),
+    orderBy("entryDate", "asc") // falls vorhanden; sonst weglassen oder auf "createdAt" ändern
+  );
+  const unsub = onSnapshot(qRef, (snap) => {
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setTrades(rows);
+  }, (err) => {
+    console.error("trades onSnapshot error:", err);
+    setTrades([]); // Fallback
+  });
+  return unsub;
+}, [db, uid]);
 
-  // range dates
-  useEffect(() => {
-    const now = new Date();
-    if (range==="Today") { setFrom(startOfDay(now)); setTo(endOfDay(now)); }
-    if (range==="Week")  { setFrom(startOfWeek(now)); setTo(endOfWeek(now)); }
-    if (range==="Month") { setFrom(startOfMonth(now)); setTo(endOfMonth(now)); }
-    if (range==="Year")  { setFrom(startOfYear(now)); setTo(endOfYear(now)); }
-  }, [range]);
+
+useEffect(() => {
+  const now = new Date();
+
+  // Day = heute
+  if (range === "Day") {
+    setFrom(startOfDay(now));
+    setTo(endOfDay(now));
+  }
+
+  // 7D = letzte 7 Tage inkl. heute
+  if (range === "7D") {
+    setFrom(startOfDay(daysAgo(now, 6))); // 0..6 = 7 Tage
+    setTo(endOfDay(now));
+  }
+
+  // 30D = letzte 30 Tage inkl. heute
+  if (range === "30D") {
+    setFrom(startOfDay(daysAgo(now, 29))); // 0..29 = 30 Tage
+    setTo(endOfDay(now));
+  }
+
+  // Year = aktuelles Kalenderjahr (bleibt so)
+  if (range === "Year") {
+    setFrom(startOfYear(now));
+    setTo(endOfYear(now));
+  }
+
+  // All = alle Trades
+  if (range === "All") {
+    setFrom(allTimeBounds.from);
+    setTo(allTimeBounds.to);
+  }
+}, [range, allTimeBounds]);
+
 
 // 1) range, trades etc. … (wie gehabt)
 
@@ -331,6 +422,9 @@ const outcomeTotal = useMemo(
       avgLoss:   avgLoss,
     };
   }, [scoped]);
+
+ 
+
 
   /* --------------- Data for charts --------------- */
   // Equity (für großes Area unter KPIs)
@@ -414,6 +508,18 @@ const monthlyRows = useMemo(() => {
 }, [scoped, yearMonthly]);
 
 const monthlyMA = useMemo(() => movingAvgN(monthlyRows, 3), [monthlyRows]);
+const { data: confData, series: confSeries } = useMemo(
+  () => equityByConfluenceOnly(scoped, confMeta, confEnabled),
+  [scoped, confMeta, confEnabled]
+);
+
+const daysAgo = (d, n) => {
+  const x = new Date(d);
+  x.setDate(x.getDate() - n);
+  return x;
+};
+
+
 
 // Farb-Gradienten-IDs stabilisieren
 const gradPosId = "barPosMonthly";
@@ -446,33 +552,59 @@ const gradNegId = "barNegMonthly";
     Analytics
   </h1>
 
-  {/* Zeitraum-Filter */}
-  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-    {["Today", "Week", "Month", "Year"].map((k) => (
-      <button
-        key={k}
-        onClick={() => setRange(k)}
-        style={{
-          padding: "8px 12px",
-          borderRadius: 10,
-          border: `1px solid ${range === k ? T.accent : T.border}`,
-          background: range === k ? T.accent : "transparent",
-          color: range === k ? "#fff" : T.text,
-          fontWeight: 400,
-          cursor: "pointer",
-        }}
-      >
-        {k}
-      </button>
-    ))}
-    <span style={{ color: T.sub, margin: "0 6px" }}>Custom</span>
+{/* Zeitraum-Filter */}
+<div
+  style={{
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",     // <-- erlaubt Umbruch
+    rowGap: 8,            // hübscher Zeilenabstand
+  }}
+>
+{["Day", "7D", "30D", "Year", "All"].map((k) => (
+
+
+    <button
+      key={k}
+      onClick={() => setRange(k)}
+      style={{
+        padding: "8px 12px",
+        borderRadius: 10,
+        border: `1px solid ${range === k ? T.accent : T.border}`,
+        background: range === k ? T.accent : "transparent",
+        color: range === k ? "#fff" : T.text,
+        fontWeight: 400,
+        cursor: "pointer",
+        flex: "0 1 auto",     // <-- darf schrumpfen
+        minWidth: 0,
+      }}
+    >
+      {k}
+    </button>
+  ))}
+
+  {/* erzwungener Zeilenumbruch auf kleinen iPhones */}
+  {isSmallPhone && <span style={{ flexBasis: "100%", height: 0 }} />}
+
+  {/* Custom-Block in eigener flex-Gruppe, die ebenfalls umbrechen darf */}
+  <div
+    style={{
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      flex: "1 1 240px",
+      minWidth: 0,
+    }}
+  >
+   
+
     <input
       type="date"
       value={
         from
-          ? `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(
-              from.getDate()
-            )}`
+          ? `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}`
           : ""
       }
       onChange={(e) => setFrom(startOfDay(new Date(e.target.value)))}
@@ -482,9 +614,14 @@ const gradNegId = "barNegMonthly";
         border: `1px solid ${T.border}`,
         borderRadius: 8,
         padding: "6px 8px",
+        flex: "0 1 auto",
+        minWidth: isSmallPhone ? 130 : 170,   // <-- schmalere Inputs auf iPhone
+        WebkitAppearance: "none",
       }}
     />
+
     <span style={{ color: T.sub }}>→</span>
+
     <input
       type="date"
       value={
@@ -499,9 +636,14 @@ const gradNegId = "barNegMonthly";
         border: `1px solid ${T.border}`,
         borderRadius: 8,
         padding: "6px 8px",
+        flex: "0 1 auto",
+        minWidth: isSmallPhone ? 130 : 170,   // <-- dito
+        WebkitAppearance: "none",
       }}
     />
   </div>
+</div>
+
 </div>
 {/* --- Neue Charts (6x) --- */}
 <div
@@ -533,11 +675,16 @@ const gradNegId = "barNegMonthly";
   <SparkCard title="Avg R:R"   value={KPIs.avgRR.toFixed(2)}         data={rrSpark}      T={T} colSpan={4} isTablet={isTablet} isPhone={isPhone}/>
   <SparkCard title="Avg Hold"  value={formatAvgHold(KPIs.avgHoldMin)} data={holdSpark}   T={T} colSpan={4} isTablet={isTablet} isPhone={isPhone}/>
 </div>
-
-
-      {/* Equity (groß) */}
-     <Card title="Equity Curve" T={T}>
-  <div style={{ width:"100%", height:260 }}>
+<div
+  style={{
+    display: "grid",
+    gridTemplateColumns: stackCharts ? "1fr" : "repeat(12, minmax(0, 1fr))",
+    gap: 14,
+    marginTop: 14,
+  }}
+>
+  <Card title="Equity Curve" T={T} colSpan={12} isNarrow={stackCharts}>
+    <div style={{ width: "100%", height: 260 }}>
     <ResponsiveContainer>
       <AreaChart
         data={equity}
@@ -573,10 +720,10 @@ const gradNegId = "barNegMonthly";
         />
       </AreaChart>
     </ResponsiveContainer>
-  </div>
-</Card>
-
-
+    </div>
+  </Card>
+</div>
+<ProGate enabled={isPro} onUpgrade={goUpgrade} T={T}>
       {/* Weitere Beispiele (mit Outline + Verlauf bei Bars) */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(12,1fr)", gap:14, marginTop:14 }}>
        <Card title="Trades by Hour" T={T} colSpan={6} isNarrow={stackCharts}>  
@@ -591,6 +738,7 @@ const gradNegId = "barNegMonthly";
       radiusTop={4}           // weniger abgerundet
     />
   </div>
+  
 </Card>
 
         <Card title="Profit by Weekday"T={T} colSpan={6} isNarrow={stackCharts}>
@@ -993,10 +1141,10 @@ const gradNegId = "barNegMonthly";
     <div style={{ flex:"1 1 auto", minHeight:0 }}>
       <ResponsiveContainer>
         {(() => {
-          const { data, series } = equityByConfluenceOnly(scoped, confMeta, confEnabled);
+         
 
           // 1) Pro Serie einen individuellen Verlauf definieren
-          const gradientDefs = series.map(s => {
+          const gradientDefs = confSeries.map(s => {
             const id = `fill_conf_${s.key}`;
             return (
               <linearGradient key={id} id={id} x1="0" y1="0" x2="0" y2="1">
@@ -1008,14 +1156,11 @@ const gradNegId = "barNegMonthly";
           });
 
           // 2) Y-Domain mit „Pad“, damit der unterste Tick nicht „klebt“
-          const [yMin, yMax] = computeYDomainPadding(
-            data,
-            series.map(s => s.key)
-          );
+      const [yMin, yMax] = computeYDomainPadding(confData, confSeries.map(s => s.key));
 
           return (
             <ComposedChart
-              data={data}
+             data={confData}
               margin={{ left: 16, right: 22, top: 8, bottom: 14 }} // etwas mehr Luft
             >
               <defs>{gradientDefs}</defs>
@@ -1052,7 +1197,7 @@ const gradNegId = "barNegMonthly";
               />
 
               {/* Gefüllte Fläche + Linie je Confluence */}
-              {series.map(s => (
+             {confSeries.map(s => (
                 <React.Fragment key={s.key}>
                   <Area
                     type="monotone"
@@ -1101,7 +1246,7 @@ const gradNegId = "barNegMonthly";
         const gradNeg = "wfNeg";
         const gradEq  = "wfEqFill";
         return (
-          <ComposedChart data={data} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
+          <ComposedChart data={confData} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
             <defs>
               {/* Balken-Gradients */}
               <linearGradient id={gradPos} x1="0" y1="0" x2="0" y2="1">
@@ -1318,6 +1463,8 @@ const gradNegId = "barNegMonthly";
       </ResponsiveContainer>
     </div>
   </Card>
+ 
+  
 
 
 
@@ -1340,7 +1487,7 @@ gridTemplateColumns: stackCharts ? "1fr" : "repeat(12, minmax(0, 1fr))",
 
 
 </div>
-
+ </ProGate>
     </div>
     
   );
@@ -1415,6 +1562,66 @@ function movingAvgN(rows, n = 3) {
 }
 
 
+
+function ProGate({ enabled, children, onUpgrade, T }) {
+  if (enabled) return children;
+
+  // Der Inhalt wird geblurrt und „un-klickbar“,
+  // darüber liegt ein sticky CTA, der beim Scrollen mitläuft.
+  return (
+    <div style={{ position: "relative" }}>
+      {/* Blur-Schicht */}
+      <div
+        aria-hidden="true"
+        style={{
+          filter: "blur(6px)",
+          pointerEvents: "none",
+          userSelect: "none",
+        }}
+      >
+        {children}
+      </div>
+
+      {/* Overlay: Button zentriert und leicht nach unten versetzt; kein Hinweistext */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          display: "grid",
+          placeItems: "center",
+          pointerEvents: "none", // nur der Button ist klickbar
+          background: "linear-gradient(180deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.10) 35%, rgba(0,0,0,0) 60%)",
+          borderRadius: 14,
+        }}
+      >
+        <button
+          onClick={onUpgrade}
+          style={{
+            pointerEvents: "auto",
+            transform: "translateY(-1350px)", // „etwas nach unten“
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "14px 22px",
+            borderRadius: 999,
+            border: "none",
+            cursor: "pointer",
+            fontWeight: 900,
+            letterSpacing: 0.3,
+            color: "#fff",
+            background: "linear-gradient(135deg, #2c60fa 0%, #e82fa6 100%)", // blau → pink
+            boxShadow: "0 10px 28px rgba(0,0,0,.25), 0 0 0 2px rgba(255,255,255,.06) inset",
+          }}
+          aria-label="Open Subscription"
+          title="Open Subscription"
+        >
+          <FiStar />
+          Upgrade
+        </button>
+      </div>
+     </div>
+   );
+ }
 function BubbleMap({ data, currency="$", T, mode="winners", maxN=7 }) {
   // klar getrennte Töne – Gewinner in Blau, Verlierer in Rot
   const BLUES = ["#BFD8FF","#98C2FF","#7AAEFF","#5A9BFF","#3C88FF","#1E76FF","#0A63E5"];
@@ -1615,31 +1822,26 @@ function symbolPL(scoped){
   return [...map.entries()].map(([symbol, pl])=>({ symbol, pl }));
 }
 
-function useUserConfluences(db, uid) {
-  const [state, setState] = React.useState({ list: [], colorByKey: {} });
+function isProUser(data) {
+  if (!data || typeof data !== "object") return false;
 
-  React.useEffect(() => {
-    if (!db || !uid) return;
-    const colRef = collection(db, "users", uid, "confluences");
-    const unsub = onSnapshot(colRef, (snap) => {
-      const list = [];
-      const colorByKey = {};
-      snap.forEach((docSnap) => {
-        const d = docSnap.data() || {};
-        const raw = d.key || d.name || docSnap.id;
-        const key = String(raw || "").trim().toUpperCase();
-        const color = String(d.color || "#8884d8");
-        if (key) {
-          list.push({ id: docSnap.id, key, color });
-          colorByKey[key] = color;
-        }
-      });
-      setState({ list, colorByKey });
-    });
-    return () => unsub();
-  }, [db, uid]);
+  // 1) Neues Feld: subscriptionStatus (z.B. "Advanced" | "Pro" | "Free")
+  const subStatus = String(data.subscriptionStatus || "").toLowerCase();
+  if (subStatus === "advanced" || subStatus === "pro") return true;
 
-  return state;
+  // 2) Bestehende Felder weiter unterstützen (Stripe etc.)
+  const role = String(data.stripeRole || data.plan || data.tier || "").toLowerCase();
+  if (role === "advanced" || role === "pro") return true;
+  if (role && role !== "free") return true; // falls du "premium", "paid" etc. nutzt
+
+  // 3) subscription objects (stripeSubscription / subscription)
+  const sub = data.subscription || data.stripeSubscription || {};
+  if (String(sub.status || "").toLowerCase() === "active") return true;
+
+  // 4) explizites Flag
+  if (data.isPro === true) return true;
+
+  return false;
 }
 
 

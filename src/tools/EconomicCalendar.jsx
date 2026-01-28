@@ -130,7 +130,7 @@ const impactColor = (T, imp) =>
 
 /* ---------------- Hauptkomponente ---------------- */
 export default function EconomicCalendar({ dark = true }) {
-  const T = theme(dark);
+  const T = theme();
 
   // Woche & Tag
   const [weekAnchor, setWeekAnchor] = useState(() => startOfWeek(new Date()));

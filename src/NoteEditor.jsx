@@ -134,6 +134,13 @@ export default function NoteEditor() {
       setImgError(err?.message || "Image upload failed.");
     }
   }
+function isHtmlEmpty(html) {
+  const s = String(html || "")
+    .replace(/<[^>]*>/g, "")
+    .replace(/&nbsp;|&#160;/g, " ")
+    .trim();
+  return s.length === 0;
+}
 
   // Galerie-Upload (zweites Panel im Edit-Modus)
   function triggerGalleryUpload() {
@@ -326,13 +333,18 @@ export default function NoteEditor() {
             {/* Inline-Upload nur im Edit-Modus */}
           
           </>
-        ) : (
-          <div
-            className="note-read"
-            dangerouslySetInnerHTML={{ __html: bodyHtml || "<p><em>No content</em></p>" }}
-            style={{ padding: 14 }}
-          />
-        )}
+     ) : (
+  <div
+    className="note-read"
+    dangerouslySetInnerHTML={{ __html: bodyHtml || "<p><em>No content</em></p>" }}
+    style={{
+      padding: 14,
+      minHeight: isHtmlEmpty(bodyHtml) ? 300 : 160, // 👉 leer = höhere Box
+      display: "block",
+    }}
+  />
+)}
+
       </div>
 
       {/* Bilderbereich */}

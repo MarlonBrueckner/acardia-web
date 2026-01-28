@@ -118,6 +118,71 @@ function InfoTooltip({ color, text }) {
   );
 }
 
+// replace your getTradeDate() with this:
+function getTradeDate(t, logId) {
+  const cand =
+    t?.journaledAt || t?.createdAt || t?.date || t?.timestamp || t?.time;
+
+  // Debug: rohes Datum zeigen
+  console.log(`[date-parse] trade=${logId} raw=`, cand);
+
+  if (!cand) return null;
+
+  // Firestore Timestamp
+  if (cand?.toDate) {
+    const d = cand.toDate();
+    console.log(`[date-parse] trade=${logId} -> FirestoreTimestamp ->`, d);
+    return d;
+  }
+
+  // Zahl (epoch ms)
+  if (typeof cand === "number") {
+    const d = new Date(cand);
+    console.log(`[date-parse] trade=${logId} -> epoch(ms) ->`, d);
+    return d;
+  }
+
+  // String: dd.mm.yyyy oder dd.mm.yy
+  if (typeof cand === "string") {
+    const s = cand.trim();
+
+    // dd.mm.yyyy
+    let m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (m) {
+      const [_, dd, mm, yyyy] = m;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+      console.log(`[date-parse] trade=${logId} -> dd.mm.yyyy ->`, d);
+      return d;
+    }
+
+    // dd.mm.yy  (→ 20xx heuristik)
+    m = s.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+    if (m) {
+      const [_, dd, mm, yy] = m;
+      const yyyy = 2000 + Number(yy);
+      const d = new Date(yyyy, Number(mm) - 1, Number(dd));
+      console.log(`[date-parse] trade=${logId} -> dd.mm.yy ->`, d);
+      return d;
+    }
+
+    // ISO / yyyy-mm-dd / sonst von JS geparst
+    const d = new Date(s);
+    console.log(`[date-parse] trade=${logId} -> Date(string) ->`, d);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  // Bereits Date?
+  if (cand instanceof Date) {
+    console.log(`[date-parse] trade=${logId} -> Date instance ->`, cand);
+    return cand;
+  }
+
+  console.warn(`[date-parse] trade=${logId} -> unparseable`, cand);
+  return null;
+}
+
+
+
 /* ---------- Card ---------- */
 function Card({ T, title, right, children, colSpan = 12, stack = false }) {
   return (

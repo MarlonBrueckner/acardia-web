@@ -86,6 +86,17 @@ function monthKey(d) {
     : "—";
 }
 
+function useMediaMax(px = 720) {
+  const [match, setMatch] = React.useState(() => window.innerWidth <= px);
+  React.useEffect(() => {
+    const onResize = () => setMatch(window.innerWidth <= px);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [px]);
+  return match;
+}
+
+
 /* ---------------- Data hooks ---------------- */
 function useUserCurrency() {
   const uid = getAuth().currentUser?.uid;
@@ -335,19 +346,7 @@ function GalleryCard({ t, dark, theme, currencySymbol, palette, onOpen }) {
     borderTop: `1px solid ${theme.border}`,
   }}
 >
-  {!showSymbolInThumb && (
-    <div
-      style={{
-        fontWeight: 700,
-        fontSize: 14,
-        whiteSpace: "nowrap",
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-      }}
-    >
-      {symbolFallback(t.symbol)}
-    </div>
-  )}
+ 
 
   <div
     style={{
@@ -364,7 +363,7 @@ function GalleryCard({ t, dark, theme, currencySymbol, palette, onOpen }) {
   <div
     style={{
       justifySelf: "end",
-      marginTop: showSymbolInThumb ? "5px" : "-25px", // Platz nach oben bei Symbol-Placeholder
+      marginTop: showSymbolInThumb ? "5px" : "0px", // Platz nach oben bei Symbol-Placeholder
       padding: "4px 10px",
       borderRadius: 999,
       background: profitBg,
@@ -378,7 +377,19 @@ function GalleryCard({ t, dark, theme, currencySymbol, palette, onOpen }) {
   >
     {signed}
   </div>
-
+ {!showSymbolInThumb && (
+    <div
+      style={{
+        fontWeight: 700,
+        fontSize: 14,
+        whiteSpace: "nowrap",
+        overflow: "hidden",
+        textOverflow: "ellipsis",
+      }}
+    >
+      {symbolFallback(t.symbol)}
+    </div>
+  )}
 
   </div>
 
@@ -407,7 +418,7 @@ export default function TradeGallery({ dark, items, onOpen }) {
   const theme = useTheme(dark);
   const { symbol: currencySymbol } = useUserCurrency();
   const confPalette = useConfluencePalette();
-
+  const isNarrow = useMediaMax(720); // <<< neu
   // Filter
   const [position, setPosition] = useState("All");
   const [outcome, setOutcome] = useState("All");
@@ -448,13 +459,13 @@ export default function TradeGallery({ dark, items, onOpen }) {
 
   if (!items || items.length === 0) return <Empty theme={theme} />;
 
-  return (
+     return (
     <div style={{ display: "grid", gap: 12 }}>
-      {/* Filterzeile (Chevron-Down, nah an der Liste) */}
+      {/* Filterzeile */}
       <div
         style={{
           display: "flex",
-          justifyContent: "flex-end",
+          justifyContent: isNarrow ? "flex-start" : "flex-end", // <<< links auf schmal
           alignItems: "center",
           gap: 10,
           flexWrap: "wrap",
@@ -462,13 +473,13 @@ export default function TradeGallery({ dark, items, onOpen }) {
         }}
       >
         {/* Suche */}
-        <div style={{ position: "relative" }}>
+        <div style={{ position: "relative", flex: isNarrow ? "1 1 100%" : "0 0 auto" }}>
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search symbol…"
             style={{
-              width: 240,
+              width: isNarrow ? "100%" : 240,                    // <<< volle Breite auf schmal
               background: theme.input,
               color: theme.text,
               border: `1px solid ${theme.inputBorder}`,

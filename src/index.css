@@ -11,3 +11,73 @@ body::-webkit-scrollbar,
 html::-webkit-scrollbar {
   display: none;
 }
+/* Grundfarben als Variablen */
+:root {
+  --bg: #ffffff;
+  --bg-dark: #181818;
+  color-scheme: light dark; /* bessere native Farben/Scrollbars */
+}
+
+/* Light standardmäßig */
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg);
+  min-height: 100%;
+}
+
+/* Wenn du das Theme per data-attribute schaltest (TopBar macht das bereits) */
+html[data-theme="dark"] {
+  --bg: var(--bg-dark);
+}
+
+/* Stelle sicher: dein App-Root erbt die Farbe und füllt die Höhe */
+#root, #app {
+  min-height: 100vh;
+  background-color: var(--bg);
+}
+
+/* Wenn du einen Wrapper/Layout hast, ebenfalls einfärben */
+.app-shell, .page {
+  background-color: var(--bg);
+}
+
+/* iOS: optional Bounce deaktivieren (Safari 16+), falls du gar keine Gummibandfläche willst) */
+html, body {
+  overscroll-behavior-y: none;
+}
+html, body, #root {
+  height: 100%;
+}
+
+.page-wrapper {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.page-content {
+  flex: 1;
+  position: relative; /* wichtig wegen deiner Parallax-Layer */
+}
+:root {
+  --app-font: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+/* 1) Grundregel */
+html, body, #root {
+  font-family: var(--app-font);
+}
+
+/* 2) Hard override für ALLE Elemente + Pseudoelemente */
+*, *::before, *::after {
+  font-family: var(--app-font) !important;
+}
+
+/* 3) Speziell für Form-Controls (werden oft vom Browser/Lib überschrieben) */
+input, button, textarea, select, option, label {
+  font-family: var(--app-font) !important;
+}
+html {
+  font-size: 14px; /* statt 16px → ca. −6 % */
+}

@@ -1,0 +1,40 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in…</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+  </head>
+  <body>
+    Signing in…
+    <script type="module">
+      // Passe die Imports an deine Setup-Art an (v9 modular)
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+      import { getAuth, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+
+      const firebaseConfig = {
+        // DEIN CONFIG
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const auth = getAuth(app);
+
+      // Token im Fragment, damit er NICHT an Server-Logs geht:
+      // https://acardiajournal.com/mobile-bridge#token=XYZ
+      const hash = new URLSearchParams(location.hash.replace("#", ""));
+      const token = hash.get("token");
+
+      if (!token) {
+        location.replace("/login");
+      } else {
+        try {
+          await signInWithCustomToken(auth, token);
+          location.replace("/dashboard/analytics");
+        } catch (e) {
+          console.error(e);
+          location.replace("/login");
+        }
+      }
+    </script>
+  </body>
+</html>

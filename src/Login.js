@@ -13,6 +13,7 @@ import {
   browserSessionPersistence
 } from "firebase/auth";
 import { auth } from "./firebase";
+import { TwitterAuthProvider, signInWithRedirect, getRedirectResult } from "firebase/auth";
 import ReCAPTCHA from "react-google-recaptcha";
 
 // Verbesserte Hilfsfunktion für verständlichere Fehlermeldungen
@@ -43,13 +44,14 @@ export default function Login() {
   const [captchaValue, setCaptchaValue] = useState("");
   const [captchaError, setCaptchaError] = useState("");
   const [resetSent, setResetSent] = useState(false);
- 
+   const gifUrl = "https://media.giphy.com/media/v1.Y2lkPWVjZjA1ZTQ3amxiYnE2YTIwdGoxb28zYzJ0emlveDFnZDh6MnAwaHM3eDdyaG16NyZlcD12MV9naWZzX3JlbGF0ZWQmY3Q9Zw/b85mPT4Usz7fq/giphy.gif";
+
   const [setCaptchaToken] = useState(null);
   const [emailTouched, setEmailTouched] = useState(false);
   const [passwordTouched, setPasswordTouched] = useState(false);
 const [rememberMe, setRememberMe] = useState(false);
 const facebookProvider = new FacebookAuthProvider();
-  const twitterProvider = new OAuthProvider("twitter.com")
+const twitterProvider = new TwitterAuthProvider();
   // Social Login
     const isEmailInvalid = emailTouched && (!email || !/\S+@\S+\.\S+/.test(email));
   const isPasswordInvalid = passwordTouched && password.length < 1;
@@ -67,59 +69,83 @@ async function handleEmailAuth(e) {
   setError("");
   setLoading(true);
   try {
-    // Persistence setzen JE NACH Zustand der Checkbox!
-    await setPersistence(
-      auth,
-      rememberMe ? browserLocalPersistence : browserSessionPersistence
-    );
+    await applyPersistence();
+
     if (mode === "register") {
       await createUserWithEmailAndPassword(auth, email, password);
-      navigate("/AnalyticsPage");
     } else {
       await signInWithEmailAndPassword(auth, email, password);
-      navigate("/AnalyticsPage");
     }
+
+    localStorage.setItem("isLoggedIn", "true"); // wichtig für deinen Guard (falls du den noch nutzt)
+    navigate("/dashboard/analytics");           // ✅ richtiger Pfad (nicht "/AnalyticsPage")
   } catch (err) {
     setError(friendlyError(err));
+  } finally {
+    setLoading(false);
   }
-  setLoading(false);
 }
+
+
+async function applyPersistence() {
+  await setPersistence(
+    auth,
+    rememberMe ? browserLocalPersistence : browserSessionPersistence
+  );
+}
+
 
 async function handleFacebook() {
   setError("");
   setLoading(true);
   try {
+    await applyPersistence();
     await signInWithPopup(auth, facebookProvider);
-    navigate("/AnalyticsPage");
+
+    localStorage.setItem("isLoggedIn", "true");
+    navigate("/dashboard/analytics");
   } catch (err) {
     setError(friendlyError(err));
+  } finally {
+    setLoading(false);
   }
-  setLoading(false);
 }
 
-  async function handleTwitter() {
-    setError("");
-    setLoading(true);
-    try {
-      await signInWithPopup(auth, twitterProvider);
-      navigate("/AnalyticsPage");
-    } catch (err) {
-      setError(friendlyError(err));
-    }
-    setLoading(false);
-  }
+async function handleTwitter() {
+  setError("");
+  setLoading(true);
+  try {
+    await applyPersistence();
+    await signInWithPopup(auth, twitterProvider);
 
-  async function handleGoogle() {
-    setError("");
-    setLoading(true);
-    try {
-      await signInWithPopup(auth, googleProvider);
-      navigate("/AnalyticsPage");
-    } catch (err) {
-      setError(friendlyError(err));
-    }
+    localStorage.setItem("isLoggedIn", "true");
+    navigate("/dashboard/analytics");
+  } catch (err) {
+    setError(friendlyError(err));
+  } finally {
     setLoading(false);
   }
+}
+
+
+
+
+async function handleGoogle() {
+  setError("");
+  setLoading(true);
+  try {
+    await applyPersistence();
+    await signInWithPopup(auth, googleProvider);
+
+    localStorage.setItem("isLoggedIn", "true");
+    navigate("/dashboard/analytics");
+  } catch (err) {
+    setError(friendlyError(err));
+  } finally {
+    setLoading(false);
+  }
+}
+
 
   
 
@@ -154,16 +180,26 @@ async function handleFacebook() {
 
  return (
     <div className="min-h-screen w-full flex bg-black text-white">
-      {/* Left Panel: Infinite Tech GIF */}
+      {/* Left Panel: Tech GIF */}
       <div className="hidden md:flex md:w-1/2 h-screen relative overflow-hidden p-4">
         <div className="relative w-full h-full rounded-2xl overflow-hidden shadow-lg">
           <img
-            src="/loop.gif"
-            alt="Fusion Reactor Animation"
-            className={`w-full h-full object-cover object-center opacity-70 transition-all duration-300 ${gifPaused ? 'opacity-30 grayscale' : ''}`}
+            src={gifUrl}   // <-- externe URL oder "/loop.gif"
+            alt="Background Animation"
+            className={`w-full h-full object-cover object-center opacity-70 transition-all duration-300 ${
+              gifPaused ? "opacity-30 grayscale" : ""
+            }`}
             style={{ maxHeight: "100vh", borderRadius: "1.5rem" }}
             draggable={false}
-            {...(gifPaused ? { style: { ...{ maxHeight: "100vh", borderRadius: "1.5rem" }, filter: "grayscale(100%) blur(2px)", opacity: 0.3 } } : {})}
+            {...(gifPaused
+              ? {
+                  style: {
+                    ...{ maxHeight: "100vh", borderRadius: "1.5rem" },
+                    filter: "grayscale(100%) blur(2px)",
+                    opacity: 0.3,
+                  },
+                }
+              : {})}
           />
           {/* Pause Button unten links */}
          <button
@@ -448,14 +484,17 @@ async function handleFacebook() {
           <p className="text-sm text-red-500 mt-1 ml-1">This field is required</p>
         )}
       </div>
-      {/* CAPTCHA */}
-      <div className="w-full flex justify-center mb-2">
-        <ReCAPTCHA
-          sitekey="DEIN_SITE_KEY_HIER"
-          theme="dark"
-          onChange={token => setCaptchaValue(token)}
-        />
-      </div>
+      {/* CAPTCHA vorübergehend deaktiviert */}
+{/*
+<div className="w-full flex justify-center mb-2">
+  <ReCAPTCHA
+    sitekey="DEIN_SITE_KEY_HIER"
+    theme="dark"
+    onChange={token => setCaptchaValue(token)}
+  />
+</div>
+*/}
+
       {/* Error von Firebase */}
       {error && (
         <div className="w-full text-left text-red-400 font-medium text-base mb-2">
@@ -466,7 +505,7 @@ async function handleFacebook() {
       <button
         type="submit"
         className="w-full py-3 bg-white text-black text-lg font-semibold rounded-xl shadow-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-        disabled={loading || isEmailInvalid || isPasswordInvalid || !captchaValue}
+        disabled={loading || isEmailInvalid || isPasswordInvalid}
       >
         {loading ? "Creating account..." : "Create account"}
       </button>

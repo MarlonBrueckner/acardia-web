@@ -5,8 +5,14 @@ import {
   getFirestore,
   doc,
   updateDoc,
-  deleteDoc
+  deleteDoc,
+  addDoc,
+  collection,
+ serverTimestamp,
+ getDocs
+ 
 } from "firebase/firestore";
+
 import {
   getStorage,
   ref as storageRef,
@@ -118,22 +124,31 @@ function Row({ k, v, icon, theme }) {
   );
 }
 
-function Tags({ list, theme }) {
+function Tags({ list, theme, palette }) {
   if (!Array.isArray(list) || list.length === 0) return null;
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
       {list.map((t, i) => {
-        const text = t?.text ?? t;
-        const color = t?.color ?? "#2C60FA";
+         const text = t?.text ?? t;
+        const key = String(text).toLowerCase();
+        // 1. Farbe aus globaler Palette
+        // 2. fallback auf in Trade gespeicherte Farbe
+        // 3. fallback blau
+        const color =
+          (palette && palette[key]) ||
+          (t && t.color) ||
+         "#2C60FA";
+
         return (
           <span
             key={`${text}-${i}`}
             title={text}
             style={{
               padding: "6px 10px",
-              borderRadius: 10, // weniger rund
-              background: rgba(color, 0.16),
-              border: `1px solid ${rgba(color, 0.4)}`,
+              borderRadius: 10,
+              background: rgba(color, 0.16),         // leicht getönter Hintergrund
+              border: `1px solid ${rgba(color, 0.4)}`, // Rahmen in der gleichen Farbe
               color,
               fontSize: 12,
               fontWeight: 600,
@@ -161,12 +176,18 @@ export default function TradeDetailModal({
   dark,
   onClose,
   onDeleted,
-  onSaved
+  onSaved,
+  onCreated = () => {},
+  // NEU:
+  createLimit,      // { weeklyCount: number, weeklyLimit: number|Infinity, plan: "free"|"advanced"|"pro" }
+  onCreateBlocked,  // () => void  (zeigt Upgrade-Popup / leitet auf Abo-Seite)
 }) {
   const theme = useMemo(() => (dark ? palette.dark : palette.light), [dark]);
+  const confluencePalette = useConfluencePalette();
   const [imgIdx, setImgIdx] = useState(0);
-  const [isEdit, setIsEdit] = useState(false);
-
+   const [isEdit, setIsEdit] = useState(false);
+  // "Neu" erkennen: kein trade?.id oder ein Marker wie __isNew
+  const isNew = !trade?.id || trade?.__isNew === true;
 // Beispiel-Symbole – später evtl. dynamisch aus DB laden
 
 
@@ -210,11 +231,13 @@ export default function TradeDetailModal({
       positiveFeedback: trade.positiveFeedback || "",
       negativeFeedback: trade.negativeFeedback || "",
       currencySymbol: trade.currencySymbol || "",
-      confluenceEntries: Array.isArray(trade.confluenceEntries)
-        ? trade.confluenceEntries.map((c) =>
-            typeof c === "string" ? { text: c, color: "#2C60FA" } : c
-          )
-        : [],
+       confluenceEntries: Array.isArray(trade.confluenceEntries)
+      ? trade.confluenceEntries.map((c) =>
+          typeof c === "string"
+            ? { text: c, color: "#2C60FA" }
+            : c
+        )
+      : [],
       images: Array.isArray(trade.images) ? trade.images.filter(Boolean) : [],
     });
   }, [open, trade]);
@@ -274,7 +297,29 @@ export default function TradeDetailModal({
     };
 
     // Speichern und warten
-    await updateDoc(doc(db, "users", uid, "trades", trade.id), payload);
+  // --- NEU: Limit-Gate nur für "Neu", nicht für Edit ---
+    if (isNew) {
+      const count = createLimit?.weeklyCount ?? 0;
+      const limit = createLimit?.weeklyLimit ?? Infinity;
+      const reached = Number.isFinite(limit) && count >= limit;
+      if (reached) {
+        onCreateBlocked?.(); // Upgrade-Popup / Redirect
+        return;              // **abbrechen**, nichts schreiben
+      }
+      // Neu anlegen
+      const docRef = await addDoc(
+        collection(db, "users", uid, "trades"),
+        {
+          ...payload,
+          createdAt: serverTimestamp(),
+            journaledAt: serverTimestamp(),
+        }
+      );
+      onCreated?.(docRef.id);
+    } else {
+      // Bearbeiten
+      await updateDoc(doc(db, "users", uid, "trades", trade.id), payload);
+    }
 
     // Erst nach Erfolg UI anpassen
     setIsEdit(false);
@@ -341,6 +386,37 @@ export default function TradeDetailModal({
       confluenceEntries: [...(f.confluenceEntries || []), { text, color: color || "#2C60FA" }],
     }));
   }
+
+  // Holt Map: { textLower: "#hex" } aus users/{uid}/confluences
+function useConfluencePalette() {
+  const uid = getAuth().currentUser?.uid;
+  const db = getFirestore();
+  const [map, setMap] = React.useState({});
+
+  React.useEffect(() => {
+    if (!uid) return;
+    (async () => {
+      try {
+        const snap = await getDocs(collection(db, "users", uid, "confluences"));
+        const m = {};
+        snap.forEach((d) => {
+          const { text, color } = d.data() || {};
+          if (text && color) {
+            m[String(text).toLowerCase()] = color;
+          }
+        });
+        setMap(m);
+      } catch (e) {
+        console.error("confluences load error", e);
+      }
+    })();
+  }, [db, uid]);
+
+  return map;
+}
+
+
+
   function removeConfluence(idx) {
     setForm((f) => {
       const next = [...(f.confluenceEntries || [])];
@@ -486,6 +562,7 @@ export default function TradeDetailModal({
               <>
                 <button
                   onClick={handleSave}
+                  disabled={isNew && createLimit && Number.isFinite(createLimit.weeklyLimit) && createLimit.weeklyCount >= createLimit.weeklyLimit}
                   title="Save changes"
                   style={{
                     border: `1px solid ${theme.border}`,
@@ -524,18 +601,49 @@ export default function TradeDetailModal({
             )}
           </div>
         </div>
+        {/* ...direkt vor dem letzten </div> im return dieser Komponente: */}
+<style>{`
+  /* TradeDetailModal: responsive tweaks */
+  @media (max-width: 720px) {
+    /* Grid von 2 Spalten -> 1 Spalte */
+    .tdm-body {
+      grid-template-columns: 1fr !important;
+      gap: 10px !important;
+      padding: 12px !important;
+      --imgH: 220px; /* kleinere Bildhöhe auf Mobile */
+    }
 
-        {/* BODY */}
-        <div
-          style={{
-            padding: 16,
-            overflow: "auto",
-            background: theme.bg,
-            display: "grid",
-            gap: 12,
-            gridTemplateColumns: showGallery ? "1.2fr .8fr" : "1fr",
-          }}
-        >
+    /* Kopfbereich: Elemente dürfen umbrechen */
+    .tdm-header-flex {
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    /* Buttons im Header nicht quetschen */
+    .tdm-header-actions button {
+      width: 36px;
+      height: 36px;
+    }
+  }
+`}</style>
+
+
+       {/* BODY */}
+       
+<div
+  className="tdm-body"
+  style={{
+    padding: 16,
+    overflow: "auto",
+    background: theme.bg,
+    display: "grid",
+    gap: 12,
+    gridTemplateColumns: showGallery ? "1.2fr .8fr" : "1fr",
+    // Desktop-Default für Bildhöhe
+    ["--imgH"]: "320px",
+  }}
+>
+
           {/* LEFT: Details, Notes, Confluences */}
           <div style={{ display: "grid", gap: 12 }}>
             {/* Details */}
@@ -758,53 +866,67 @@ export default function TradeDetailModal({
             )}
 
             {/* Confluences (eingefärbt nach gespeicherter Farbe) */}
-            {(form.confluenceEntries.length > 0 || isEdit) && (
-              <section style={section(theme)}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <FiTag size={16} style={{ color: theme.sub }} />
-                  <div style={label(theme)}>Confluences</div>
-                </div>
+           {(form.confluenceEntries.length > 0 || isEdit) && (
+  <section style={section(theme)}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+      <FiTag size={16} style={{ color: theme.sub }} />
+      <div style={label(theme)}>Confluences</div>
+    </div>
 
-                {!isEdit ? (
-                  <Tags list={form.confluenceEntries} theme={theme} />
-                ) : (
-                  <>
+    {!isEdit ? (
+      // 👇 hier werden sie farbig angezeigt
+        <Tags
+        list={form.confluenceEntries}
+        theme={theme}
+        palette={confluencePalette}
+      />
+    ) : (
+      <>
                     {/* Bestehende */}
                     {form.confluenceEntries.length > 0 && (
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-                        {form.confluenceEntries.map((c, idx) => (
-                          <span
-                            key={`${c.text}-${idx}`}
-                            style={{
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 8,
-                              padding: "6px 10px",
-                              borderRadius: 10,
-                              background: rgba(c.color || "#2C60FA", 0.16),
-                              border: `1px solid ${rgba(c.color || "#2C60FA", 0.4)}`,
-                              color: c.color || "#2C60FA",
-                              fontSize: 12,
-                              fontWeight: 600,
-                            }}
-                          >
-                            {c.text}
-                            <button
-                              onClick={() => removeConfluence(idx)}
-                              title="Remove"
-                              style={{
-                                border: "none",
-                                background: "transparent",
-                                color: theme.sub,
-                                cursor: "pointer",
-                                display: "grid",
-                                placeItems: "center",
-                              }}
-                            >
-                              <FiX size={14} />
-                            </button>
-                          </span>
-                        ))}
+                      {form.confluenceEntries.map((c, idx) => {
+      const text = c?.text ?? c;
+      const key = String(text).toLowerCase();
+      const baseColor =
+        (confluencePalette && confluencePalette[key]) ||
+        c?.color ||
+        "#2C60FA";
+
+      return (
+        <span
+          key={`${text}-${idx}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8,
+            padding: "6px 10px",
+            borderRadius: 10,
+            background: rgba(baseColor, 0.16),
+            border: `1px solid ${rgba(baseColor, 0.4)}`,
+            color: baseColor,
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {text}
+          <button
+            onClick={() => removeConfluence(idx)}
+            title="Remove"
+            style={{
+              border: "none",
+              background: "transparent",
+              color: theme.sub,
+              cursor: "pointer",
+              display: "grid",
+              placeItems: "center",
+            }}
+          >
+            <FiX size={14} />
+          </button>
+        </span>
+      );
+    })}
                       </div>
                     )}
 
@@ -830,10 +952,11 @@ export default function TradeDetailModal({
                   }}
                 >
                   <img
-                    src={currentImg}
-                    alt=""
-                    style={{ width: "100%", height: 320, objectFit: "cover", display: "block" }}
-                  />
+  src={currentImg}
+  alt=""
+  style={{ width: "100%", height: "var(--imgH)", objectFit: "cover", display: "block" }}
+/>
+
                 </div>
               )}
 

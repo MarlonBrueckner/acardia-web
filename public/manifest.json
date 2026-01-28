@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "name": "Acardia Journal",
+  "short_name": "Acardia",
   "icons": [
     {
       "src": "favicon.ico",

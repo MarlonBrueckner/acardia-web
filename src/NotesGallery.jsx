@@ -1,33 +1,153 @@
 // src/notes/NotesGallery.jsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useOutletContext } from "react-router-dom";
-import { getAuth } from "firebase/auth";
+import { getAuth, onAuthStateChanged } from "firebase/auth";
 import {
-  getFirestore, collection, onSnapshot, query, orderBy, addDoc, serverTimestamp, doc, setDoc
+  getFirestore,
+  collection,
+  onSnapshot,
+  query,
+  orderBy,
+  addDoc,
+  serverTimestamp,
+  doc,
+  setDoc,
+  getDoc,
 } from "firebase/firestore";
 import { getStorage, ref as sRef, uploadString, getDownloadURL } from "firebase/storage";
 import { useTheme } from "./themeNotes";
 import { FaPlus, FaSearch, FaDownload } from "react-icons/fa";
+import { FiAlertCircle } from "react-icons/fi";
 
 const PREVIEW_H = 180;
 const FOOTER_H  = 44;
+
+/* ---- Plan → Limit (Notes) ---- */
+function planToNotesLimit(plan) {
+  const p = String(plan || "").toLowerCase();
+  if (p === "pro") return Infinity;
+  if (p === "advanced" || p === "adv") return 50;
+  return 5; // free
+}
+
+/* ---- kleines Upgrade-Popup (englisch, pink→blau Button) ---- */
+function UpgradePopup({ open, dark, onClose, onUpgrade, limit }) {
+  if (!open) return null;
+  const theme = dark
+    ? { panel: "#181818", text: "#fff", sub: "#bfc4cf", border: "#2a2a2f", shadow: "0 10px 40px rgba(0,0,0,.45)" }
+    : { panel: "#fff", text: "#23232a", sub: "#495060", border: "#e3e7ef", shadow: "0 12px 40px rgba(30,36,64,.12)" };
+
+  return (
+    <div
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+      style={{
+        position: "fixed",
+        inset: 0,
+        background: "rgba(0,0,0,.5)",
+        zIndex: 3000,
+        display: "grid",
+        placeItems: "center",
+      }}
+    >
+      <div
+        style={{
+          width: "min(520px, 92vw)",
+          background: theme.panel,
+          color: theme.text,
+          border: `1px solid ${theme.border}`,
+          borderRadius: 14,
+          boxShadow: theme.shadow,
+          padding: 16,
+          display: "grid",
+          gap: 12,
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 800 }}>
+          <FiAlertCircle style={{ color: "#2c60fa" }} />
+          Limit reached
+        </div>
+
+        <div style={{ color: theme.sub, lineHeight: 1.5 }}>
+          You’ve hit your notes limit of <b>{limit === Infinity ? "∞" : limit}</b>.
+          Upgrade to <b>Advanced</b> (up to 50) or <b>Pro</b> (unlimited) to keep creating notes.
+        </div>
+
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              color: theme.text,
+              border: `1px solid ${theme.border}`,
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontWeight: 600,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Later
+          </button>
+          <button
+            onClick={onUpgrade}
+            style={{
+              background: "linear-gradient(135deg, #ff4ecd 0%, #2c60fa 100%)",
+              color: "#fff",
+              border: "none",
+              borderRadius: 10,
+              padding: "10px 14px",
+              fontWeight: 800,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Upgrade now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function NotesGallery() {
   const { dark } = useOutletContext();
   const T = useTheme(dark);
   const nav = useNavigate();
+
   const db = getFirestore();
   const storage = getStorage();
-  const uid = getAuth().currentUser?.uid;
+  const auth = getAuth();
+
+  const [uid, setUid] = useState(auth.currentUser?.uid || null);
+  const [userDoc, setUserDoc] = useState(null);
 
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [notes, setNotes] = useState([]);
 
+  // popup for upgrade
+  const [showUpgrade, setShowUpgrade] = useState(false);
+  const [limitText, setLimitText] = useState(5);
+
   // hidden file input for imports
   const importInputRef = useRef(null);
 
+  /* --- Auth + UserDoc laden (für Plan) --- */
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUid(u?.uid || null);
+      if (u?.uid) {
+        const snap = await getDoc(doc(db, "users", u.uid));
+        setUserDoc(snap.exists() ? snap.data() : {});
+      } else {
+        setUserDoc(null);
+      }
+    });
+    return () => unsub();
+  }, [auth, db]);
+
+  /* --- Notes stream --- */
   useEffect(() => {
     if (!uid) return;
     const q = query(collection(db, "users", uid, "notes"), orderBy("updatedAt", "desc"));
@@ -37,18 +157,66 @@ export default function NotesGallery() {
     return unsub;
   }, [db, uid]);
 
-  const filtered = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    if (!s) return notes;
-    return notes.filter((n) => {
-      const title = String(n.title || "").toLowerCase();
-      const tags = (n.tags || []).join(" ").toLowerCase();
-      return title.includes(s) || tags.includes(s);
-    });
-  }, [notes, search]);
+  /* --- Plan + Limit --- */
+const plan = useMemo(() => {
+  if (!userDoc) return "free";
 
+  // ✅ 1) App/Apple (Firebase field)
+  // e.g. users/{uid}.subscriptionStatus = "Advanced" | "Pro" | "Free"
+  const appStatus = String(userDoc.subscriptionStatus || "").trim().toLowerCase();
+  if (appStatus === "pro") return "pro";
+  if (appStatus === "advanced" || appStatus === "adv") return "advanced";
+
+  // (optional legacy flag)
+  if (userDoc.isPro === true) return "pro";
+
+  // ✅ 2) Stripe role fields (web)
+  const role = String(
+    userDoc.stripeRole ||
+    userDoc.plan ||
+    userDoc.tier ||
+    ""
+  )
+    .trim()
+    .toLowerCase();
+
+  if (role === "pro") return "pro";
+  if (role === "advanced" || role === "adv") return "advanced";
+
+  // ✅ 3) Stripe subscription object status (web)
+  const sub = userDoc.subscription || userDoc.stripeSubscription || {};
+  const status = String(sub.status || "").trim().toLowerCase();
+  const isActive = status === "active" || status === "trialing";
+
+  if (isActive) {
+    const subRole = String(sub.role || "").trim().toLowerCase();
+    if (subRole === "pro") return "pro";
+    if (subRole === "advanced" || subRole === "adv") return "advanced";
+
+    // fallback: active subscription but no role stored
+    return "advanced";
+  }
+
+  return "free";
+}, [userDoc]);
+
+
+  const notesLimit = useMemo(() => planToNotesLimit(plan), [plan]);
+
+  /* --- Create Note (mit Limit-Gate) --- */
   async function createNote() {
     if (!uid) return;
+
+    const total = notes.length;
+    const limit = notesLimit;
+
+    // Gate
+    if (Number.isFinite(limit) && total >= limit) {
+      setLimitText(limit);
+      setShowUpgrade(true);
+      return;
+    }
+
     try {
       setError("");
       setCreating(true);
@@ -56,12 +224,12 @@ export default function NotesGallery() {
         title: "New Note",
         bodyHtml: "",
         bodyDelta: null,
-        images: [],              // 🔵 store images metadata array here
-        coverUrl: null,          // 🔵 first image (or chosen cover) saved by the editor
+        images: [],              // store images metadata
+        coverUrl: null,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      nav(`/dashboard/notes/${ref.id}`);
+      nav(`/dashboard/notes/${ref.id}?edit=1`);
     } catch (e) {
       console.error(e);
       setError("Could not create note (permissions?).");
@@ -81,29 +249,32 @@ export default function NotesGallery() {
       const text = await file.text();
       const payload = JSON.parse(text);
 
-      // Accept single note or array of notes
       const items = Array.isArray(payload) ? payload : [payload];
 
       for (const item of items) {
+        // Optional: auch hier Limit prüfen (Import zählt als neue Notiz)
+        if (Number.isFinite(notesLimit) && notes.length >= notesLimit) {
+          setLimitText(notesLimit);
+          setShowUpgrade(true);
+          break;
+        }
+
         const {
           title = "Imported Note",
           bodyHtml = "",
           bodyDelta = null,
-          images = [],      // may contain {name, url} OR {name, dataUrl}
+          images = [],
           coverUrl = null,
           createdAt = null,
           updatedAt = null,
         } = item || {};
 
-        // create Firestore doc
         const newRef = doc(collection(db, "users", uid, "notes"));
         const newId  = newRef.id;
 
-        // upload base64 images (if any) and collect URLs
         const uploaded = [];
         for (const img of images) {
           if (img?.url && !img?.dataUrl) {
-            // already hosted URL — keep as is
             uploaded.push({ name: img.name || "image", url: img.url, createdAt: Date.now() });
             continue;
           }
@@ -116,7 +287,6 @@ export default function NotesGallery() {
           uploaded.push({ name: img.name || "image", url: dl, createdAt: Date.now(), path });
         }
 
-        // derive cover
         const finalCover = coverUrl || uploaded[0]?.url || null;
 
         await setDoc(newRef, {
@@ -129,7 +299,6 @@ export default function NotesGallery() {
           updatedAt: updatedAt || serverTimestamp(),
         });
 
-        // Navigate to first imported note (optional). Comment if not desired:
         nav(`/dashboard/notes/${newId}`);
         break; // only jump to the first imported note
       }
@@ -139,12 +308,22 @@ export default function NotesGallery() {
     }
   }
 
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) return notes;
+    return notes.filter((n) => {
+      const title = String(n.title || "").toLowerCase();
+      const tags = (n.tags || []).join(" ").toLowerCase();
+      return title.includes(s) || tags.includes(s);
+    });
+  }, [notes, search]);
+
   const noNotes = notes.length === 0;
 
   return (
   <div
     style={{
-      padding: "8px 5px",        // 🔵 weniger horizontaler Abstand (statt 16px)
+      padding: "8px 5px",
       minHeight: "100%",
       background: T.bg
     }}
@@ -152,8 +331,8 @@ export default function NotesGallery() {
     {/* Überschrift */}
     <h1
       style={{
-        margin: "-4px 0 12px 0",   // 🔵 kaum Abstand oben, etwas nach unten
-        fontSize: 34,             // größer
+        margin: "-4px 0 12px 0",
+        fontSize: 34,
         fontWeight: 700,
         letterSpacing: 0.3,
         color: T.text
@@ -181,7 +360,7 @@ export default function NotesGallery() {
             background: T.card,
             border: `1px solid ${T.border}`,
             borderRadius: 12,
-            padding: "8px 10px"   // 🔵 kompakter
+            padding: "8px 10px"
           }}
         >
           <FaSearch color={T.sub} />
@@ -267,7 +446,7 @@ export default function NotesGallery() {
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-          gap: 10,                 // 🔵 enger
+          gap: 10,
         }}
       >
         {filtered.map((n) => (
@@ -280,10 +459,20 @@ export default function NotesGallery() {
         ))}
       </div>
     )}
+
+    {/* Upgrade-Popup */}
+    <UpgradePopup
+      open={showUpgrade}
+      dark={dark}
+      limit={limitText}
+      onClose={() => setShowUpgrade(false)}
+      onUpgrade={() => {
+        setShowUpgrade(false);
+        nav("/dashboard/settings?tab=subscription");
+      }}
+    />
   </div>
-);
-
-
+  );
 }
 
 function EmptyState({ T, onCreate, creating, onImport }) {

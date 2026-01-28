@@ -358,6 +358,15 @@ function ConfluenceTags({ tags, theme }) {
     </div>
   );
 }
+function useMediaMax(px = 720) {
+  const [match, setMatch] = React.useState(() => window.innerWidth <= px);
+  React.useEffect(() => {
+    const onResize = () => setMatch(window.innerWidth <= px);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [px]);
+  return match;
+}
 
 /* ---------- Context für Tag-Farben ---------- */
 const ConfluenceColorContext = React.createContext({});
@@ -367,7 +376,7 @@ export default function TradeList({ dark, items, onItemClick }) {
   const theme = useTheme(dark);
   const { symbol: currencySymbol } = useUserCurrency();
   const confPalette = useConfluencePalette();
-
+  const isNarrow = useMediaMax(720);
   // Filter UI
   const [position, setPosition] = useState("All"); // All | Buy | Sell
   const [outcome, setOutcome] = useState("All"); // All | Win | Loss | BE
@@ -391,199 +400,223 @@ export default function TradeList({ dark, items, onItemClick }) {
   }, [items, position, outcome, query]);
 
   // Gruppierung
-  const groups = useMemo(() => {
-    const byKey = {};
-    const now = new Date();
-    filtered.forEach((t) => {
-      const d = parseDDMMYY(t.entryDate) || parseDDMMYY(t.date) || now;
-      let g;
-      if (sameDay(d, now)) {
-        g = `Today • ${formatDate(d)}`;
-      } else if (withinThisWeek(d)) {
-        g = "This week";
-      } else {
-        g = monthKey(d); // z.B. "September 2025"
-      }
-      (byKey[g] ||= []).push(t);
-    });
+ const groups = useMemo(() => {
+  const byId = new Map();
+  const now = new Date();
 
-    // Reihenfolge: Today, This week, dann Monate desc
-    const keys = Object.keys(byKey);
-    const todayKey = keys.find((k) => k.startsWith("Today"));
-    const weekKey = keys.find((k) => k === "This week");
-    const months = keys
-      .filter((k) => k !== todayKey && k !== weekKey)
-      .sort((a, b) => {
-        const ad = new Date(a); // robust genug für "September 2025"
-        const bd = new Date(b);
-        return bd - ad;
-      });
+  function getTradeDate(t) {
+    return parseDDMMYY(t.entryDate) || parseDDMMYY(t.date) || now;
+  }
 
-    const ordered = [];
-    if (todayKey) ordered.push(todayKey);
-    if (weekKey) ordered.push(weekKey);
-    ordered.push(...months);
-    return ordered.map((k) => ({ key: k, items: byKey[k] }));
-  }, [filtered]);
+  function ensure(id, label, sortTs) {
+    if (!byId.has(id)) byId.set(id, { id, label, sortTs, items: [] });
+    return byId.get(id);
+  }
+
+  for (const t of filtered) {
+    const d = getTradeDate(t);
+
+    // 1) Today / This week
+    if (sameDay(d, now)) {
+      ensure("today", `Today • ${formatDate(d)}`, Number.POSITIVE_INFINITY).items.push(t);
+      continue;
+    }
+    if (withinThisWeek(d)) {
+      // liegt unter "today" aber über Monaten
+      ensure("week", "This week", Number.POSITIVE_INFINITY - 1).items.push(t);
+      continue;
+    }
+
+    // 2) Month groups (sortierbar ohne Locale-Probleme)
+    const y = d.getFullYear();
+    const m = d.getMonth(); // 0..11
+    const monthId = `${y}-${String(m + 1).padStart(2, "0")}`; // z.B. "2025-10"
+    const monthLabel = d.toLocaleDateString(undefined, { month: "long", year: "numeric" }); // z.B. "Oktober 2025"
+    const monthSortTs = new Date(y, m, 1).getTime();
+
+    ensure(monthId, monthLabel, monthSortTs).items.push(t);
+  }
+
+  // Trades innerhalb der Gruppen auch sortieren (neu -> alt)
+  for (const g of byId.values()) {
+    g.items.sort((a, b) => getTradeDate(b) - getTradeDate(a));
+  }
+
+  // Reihenfolge der Gruppen: Today, This week, dann Monate desc
+  const arr = Array.from(byId.values());
+
+  const today = arr.find((g) => g.id === "today");
+  const week = arr.find((g) => g.id === "week");
+  const months = arr
+    .filter((g) => g.id !== "today" && g.id !== "week")
+    .sort((a, b) => b.sortTs - a.sortTs);
+
+  const ordered = [];
+  if (today) ordered.push(today);
+  if (week) ordered.push(week);
+  ordered.push(...months);
+
+  // Output kompatibel zu deinem Render:
+  return ordered.map((g) => ({ key: g.label, items: g.items }));
+}, [filtered]);
+
 
   return (
-  <ConfluenceColorContext.Provider value={confPalette}>
-{/* Filterzeile – rechts ausgerichtet, dynamische Längen, ✓ als Dropdown-Markierung */}
-{/* Filterzeile – leicht nach unten versetzt */}
-<div
-  style={{
-    display: "flex",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-    marginBottom: 20, // etwas mehr Abstand zur Liste
-    marginTop: 8,     // Filterzeile leicht nach unten gerückt
-  }}
->
-  {/* Suche */}
-  <div style={{ position: "relative" }}>
-    <input
-      value={query}
-      onChange={(e) => setQuery(e.target.value)}
-      placeholder="Search symbol…"
-      style={{
-        width: 240,
-        background: theme.input,
-        color: theme.text,
-        border: `1px solid ${theme.inputBorder}`,
-        borderRadius: 12,
-        padding: "10px 40px 10px 36px",
-        outline: "none",
-        fontSize: 14,
-      }}
-    />
-    <FiSearch
-      size={16}
-      style={{
-        position: "absolute",
-        left: 12,
-        top: "50%",
-        transform: "translateY(-50%)",
-        color: theme.sub,
-        pointerEvents: "none",
-      }}
-    />
-    {query && (
-      <button
-        onClick={() => setQuery("")}
+    <ConfluenceColorContext.Provider value={confPalette}>
+      {/* Filterzeile */}
+      <div
         style={{
-          position: "absolute",
-          right: 8,
-          top: "50%",
-          transform: "translateY(-50%)",
-          border: "none",
-          background: "transparent",
-          color: theme.sub,
-          cursor: "pointer",
+          display: "flex",
+          justifyContent: isNarrow ? "flex-start" : "flex-end", // <<< links auf schmal
+          alignItems: "center",
+          gap: 10,
+          flexWrap: "wrap",
+          marginBottom: 20,
+          marginTop: 8,
         }}
-        aria-label="Clear search"
       >
-        <FiX size={16} />
-      </button>
-    )}
-  </div>
+        {/* Suche */}
+        <div style={{ position: "relative", flex: isNarrow ? "1 1 100%" : "0 0 auto" }}>
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search symbol…"
+            style={{
+              width: isNarrow ? "100%" : 240,              // <<< volle Breite auf schmal
+              background: theme.input,
+              color: theme.text,
+              border: `1px solid ${theme.inputBorder}`,
+              borderRadius: 12,
+              padding: "10px 40px 10px 36px",
+              outline: "none",
+              fontSize: 14,
+            }}
+          />
+          <FiSearch
+            size={16}
+            style={{
+              position: "absolute",
+              left: 12,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: theme.sub,
+              pointerEvents: "none",
+            }}
+          />
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                border: "none",
+                background: "transparent",
+                color: theme.sub,
+                cursor: "pointer",
+              }}
+              aria-label="Clear search"
+            >
+              <FiX size={16} />
+            </button>
+          )}
+        </div>
 
-  {/* Position */}{/* Position */}
-<div style={{ position: "relative", display: "inline-block" }}>
-  <select
-    value={position}
-    onChange={(e) => setPosition(e.target.value)}
-    style={{
-      background: theme.input,
-      color: theme.text,
-      border: `1px solid ${theme.inputBorder}`,
-      borderRadius: 12,
-      padding: "10px 28px 10px 12px", // rechts Platz für Pfeil
-      fontSize: 14,
-      WebkitAppearance: "none",
-      MozAppearance: "none",
-      appearance: "none",
-      width: "auto",
-    }}
-    title="Position"
-  >
-    <option>All</option>
-    <option>Buy</option>
-    <option>Sell</option>
-  </select>
-  <FiChevronDown
-    style={{
-      position: "absolute",
-      right: 10,
-      top: "50%",
-      transform: "translateY(-50%)",
-      color: theme.sub,
-      pointerEvents: "none",
-    }}
-    size={16}
-  />
-</div>
+        {/* Position */}
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <select
+            value={position}
+            onChange={(e) => setPosition(e.target.value)}
+            style={{
+              background: theme.input,
+              color: theme.text,
+              border: `1px solid ${theme.inputBorder}`,
+              borderRadius: 12,
+              padding: "10px 28px 10px 12px",
+              fontSize: 14,
+              WebkitAppearance: "none",
+              MozAppearance: "none",
+              appearance: "none",
+              width: "auto",
+            }}
+            title="Position"
+          >
+            <option>All</option>
+            <option>Buy</option>
+            <option>Sell</option>
+          </select>
+          <FiChevronDown
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: theme.sub,
+              pointerEvents: "none",
+            }}
+            size={16}
+          />
+        </div>
 
-{/* Outcome */}
-<div style={{ position: "relative", display: "inline-block" }}>
-  <select
-    value={outcome}
-    onChange={(e) => setOutcome(e.target.value)}
-    style={{
-      background: theme.input,
-      color: theme.text,
-      border: `1px solid ${theme.inputBorder}`,
-      borderRadius: 12,
-      padding: "10px 28px 10px 12px",
-      fontSize: 14,
-      WebkitAppearance: "none",
-      MozAppearance: "none",
-      appearance: "none",
-      width: "auto",
-    }}
-    title="Outcome"
-  >
-    <option>All</option>
-    <option>Win</option>
-    <option>Loss</option>
-    <option value="BE">Break-even</option>
-  </select>
-  <FiChevronDown
-    style={{
-      position: "absolute",
-      right: 10,
-      top: "50%",
-      transform: "translateY(-50%)",
-      color: theme.sub,
-      pointerEvents: "none",
-    }}
-    size={16}
-  />
-</div>
+        {/* Outcome */}
+        <div style={{ position: "relative", display: "inline-block" }}>
+          <select
+            value={outcome}
+            onChange={(e) => setOutcome(e.target.value)}
+            style={{
+              background: theme.input,
+              color: theme.text,
+              border: `1px solid ${theme.inputBorder}`,
+              borderRadius: 12,
+              padding: "10px 28px 10px 12px",
+              fontSize: 14,
+              WebkitAppearance: "none",
+              MozAppearance: "none",
+              appearance: "none",
+              width: "auto",
+            }}
+            title="Outcome"
+          >
+            <option>All</option>
+            <option>Win</option>
+            <option>Loss</option>
+            <option value="BE">Break-even</option>
+          </select>
+          <FiChevronDown
+            style={{
+              position: "absolute",
+              right: 10,
+              top: "50%",
+              transform: "translateY(-50%)",
+              color: theme.sub,
+              pointerEvents: "none",
+            }}
+            size={16}
+          />
+        </div>
 
-
-  {/* Clear */}
-  <button
-    onClick={() => {
-      setQuery("");
-      setPosition("All");
-      setOutcome("All");
-    }}
-    style={{
-      border: `1px solid ${theme.inputBorder}`,
-      background: "transparent",
-      color: theme.text,
-      borderRadius: 12,
-      padding: "10px 12px",
-      fontWeight: 600,
-      cursor: "pointer",
-      whiteSpace: "nowrap",
-    }}
-  >
-    Clear
-  </button>
-</div>
+        {/* Clear */}
+        <button
+          onClick={() => {
+            setQuery("");
+            setPosition("All");
+            setOutcome("All");
+          }}
+          style={{
+            border: `1px solid ${theme.inputBorder}`,
+            background: "transparent",
+            color: theme.text,
+            borderRadius: 12,
+            padding: "10px 12px",
+            fontWeight: 600,
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+        >
+          Clear
+        </button>
+      </div>
 
 
     {/* Liste mit Überschriften */}

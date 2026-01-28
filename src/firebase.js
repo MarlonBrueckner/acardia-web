@@ -1,9 +1,9 @@
-// Importiere die benötigten Funktionen aus dem Firebase-Paket
-import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore";
+// src/firebase.js
+import { initializeApp, getApp, getApps } from "firebase/app";
 import { getAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
+import { getStorage } from "firebase/storage";
 
-// Hier kommt deine eigene Firebase-Konfiguration rein
 const firebaseConfig = {
   apiKey: "AIzaSyA8CjkK6BuSp2EwU4X1lhWXDqFCSkvt-rw",
   authDomain: "acardia-journal.firebaseapp.com",
@@ -13,9 +13,11 @@ const firebaseConfig = {
   appId: "1:597004037226:web:cd671e1de40928e8f8ae13",
   measurementId: "G-PPDB7BET8F"
 };
-// Initialisiere Firebase
-const app = initializeApp(firebaseConfig);
 
-// Exportiere die Dienste, damit du sie in anderen Dateien nutzen kannst
-export const db = getFirestore(app);
+// nur einmal initialisieren
+export const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+
+// Services
 export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);

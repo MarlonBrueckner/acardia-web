@@ -1,127 +1,377 @@
-import { FaHome, FaList, FaLayerGroup, FaClipboardCheck, FaBook, FaChartBar, FaCog, FaBars } from "react-icons/fa";
-import { useNavigate, useLocation } from "react-router-dom";
+// src/DashboardLayout.jsx
+import Sidebar from "./Sidebar";
+import TopBar from "./TopBar";
+import { Outlet, useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useState } from "react";
+import { FiPlus } from "react-icons/fi";
+import TradeFormModal from "./TradeFormModal";
+
 import { getAuth, onAuthStateChanged } from "firebase/auth";
-import { useEffect, useState } from "react";
-import FancySwitch from "./FancySwitch"; // ggf. Pfad anpassen
+import {
+  getFirestore,
+  collection,
+  getDocs,
+  doc,
+  getDoc,
+  query,
+  orderBy,
+} from "firebase/firestore";
 
+/* ---------- kleine Utils ---------- */
+function startOfWeekBerlin(d = new Date()) {
+  const day = d.getDay(); // 0=So ... 6=Sa
+  const diffToMonday = (day + 6) % 7;
+  const start = new Date(d);
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - diffToMonday);
+  return start;
+}
+function endOfWeekBerlin(d = new Date()) {
+  const start = startOfWeekBerlin(d);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 7);
+  end.setMilliseconds(end.getMilliseconds() - 1);
+  return end;
+}
+function getTradeDate(t, logId) {
+  const cand =
+    t?.journaledAt || t?.createdAt || t?.date || t?.timestamp || t?.time;
 
-const navItems = [
-  { label: "Dashboard", icon: <FaHome />, path: "/dashboard" },
-  { label: "Sessions", icon: <FaList />, path: "/dashboard/sessions" },
-  { label: "Strategies", icon: <FaLayerGroup />, path: "/dashboard/strategies" },
-  { label: "Checklists", icon: <FaClipboardCheck />, path: "/dashboard/checklists" },
-  { label: "Journal", icon: <FaBook />, path: "/dashboard/journal" },
-  { label: "Analytics", icon: <FaChartBar />, path: "/dashboard/analytics" }
-];
+  // Debug: rohes Datum zeigen
+  console.log(`[date-parse] trade=${logId} raw=`, cand);
 
+  if (!cand) return null;
 
+  // Firestore Timestamp
+  if (cand?.toDate) {
+    const d = cand.toDate();
+    console.log(`[date-parse] trade=${logId} -> FirestoreTimestamp ->`, d);
+    return d;
+  }
 
-export default function Sidebar({ dark, setDark }) {
-  const navigate = useNavigate();
-  const location = useLocation();
+  // Zahl (epoch ms)
+  if (typeof cand === "number") {
+    const d = new Date(cand);
+    console.log(`[date-parse] trade=${logId} -> epoch(ms) ->`, d);
+    return d;
+  }
+
+  // String: dd.mm.yyyy oder dd.mm.yy
+  if (typeof cand === "string") {
+    const s = cand.trim();
+
+    // dd.mm.yyyy
+    let m = s.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+    if (m) {
+      const [_, dd, mm, yyyy] = m;
+      const d = new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+      console.log(`[date-parse] trade=${logId} -> dd.mm.yyyy ->`, d);
+      return d;
+    }
+
+    // dd.mm.yy  (→ 20xx heuristik)
+    m = s.match(/^(\d{2})\.(\d{2})\.(\d{2})$/);
+    if (m) {
+      const [_, dd, mm, yy] = m;
+      const yyyy = 2000 + Number(yy);
+      const d = new Date(yyyy, Number(mm) - 1, Number(dd));
+      console.log(`[date-parse] trade=${logId} -> dd.mm.yy ->`, d);
+      return d;
+    }
+
+    // ISO / yyyy-mm-dd / sonst von JS geparst
+    const d = new Date(s);
+    console.log(`[date-parse] trade=${logId} -> Date(string) ->`, d);
+    if (!isNaN(d.getTime())) return d;
+  }
+
+  // Bereits Date?
+  if (cand instanceof Date) {
+    console.log(`[date-parse] trade=${logId} -> Date instance ->`, cand);
+    return cand;
+  }
+
+  console.warn(`[date-parse] trade=${logId} -> unparseable`, cand);
+  return null;
+}
+
+function planToLimit(plan) {
+  const p = String(plan || "").toLowerCase();
+  if (p === "pro") return Infinity;
+  if (p === "advanced" || p === "adv") return 15;
+  return 7; // free
+}
+
+export default function DashboardLayout({ dark, setDark }) {
+  const [showTradeForm, setShowTradeForm] = useState(false);
+  const accent = "#2c60fa";
+
   const [sidebarMin, setSidebarMin] = useState(false);
-  const [userEmail, setUserEmail] = useState("");
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 900);
 
-  // Get user email from Firebase
+  // --- Neu: Auth/DB/Plan/Counter ---
+  const auth = useMemo(() => getAuth(), []);
+  const db = useMemo(() => getFirestore(), []);
+  const navigate = useNavigate();
+
+  const [uid, setUid] = useState(null);
+  const [plan, setPlan] = useState("free");
+  const [weeklyCount, setWeeklyCount] = useState(0);
+  const [lastComputedAt, setLastComputedAt] = useState(null);
+
+  const weeklyLimit = useMemo(() => planToLimit(plan), [plan]);
+
   useEffect(() => {
-    const unsub = onAuthStateChanged(getAuth(), user => setUserEmail(user?.email || ""));
-    return () => unsub();
+    const onResize = () => setIsMobile(window.innerWidth < 900);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Farben
-  const sidebarBg = dark ? "#181818" : "#fff";
-  const navText = dark ? "#fff" : "#121316";
-  const navActiveBg = dark ? "#23232a" : "#edf2fa";
-  const navActiveColor = "#2c60fa";
-  const mainText = dark ? "#fff" : "#121316";
+  // Sidebar width
+  const WIDTH_EXPANDED = 230;
+  const WIDTH_MIN = 90;
+  const sidebarWidth = isMobile ? 0 : (sidebarMin ? WIDTH_MIN : WIDTH_EXPANDED);
+useEffect(() => {
+  if (!uid) {
+    setWeeklyCount(0);
+    setTotalCount(0);
+    setLast7Count(0);
+    return;
+  }
+
+  const since7 = daysAgo(7);
+
+  const unsub = onSnapshot(collection(db, "users", uid, "trades"), (snap) => {
+    let total = 0;
+    let weekCnt = 0;
+    let last7 = 0;
+
+    const debugRows = [];
+    const noDate = [];
+
+    snap.forEach((d) => {
+      total += 1;
+      const t = d.data();
+      const dt = getTradeDate(t);
+
+      if (!dt) {
+        noDate.push({ id: d.id, raw: t?.date || t?.entryDate || t?.createdAt || t?.journaledAt });
+        return;
+      }
+
+      const inWeek = dt >= weekStart && dt <= weekEnd;
+      const in7d   = dt >= since7;
+
+      if (inWeek) weekCnt += 1;
+      if (in7d)   last7   += 1;
+
+      debugRows.push({
+        id: d.id,
+        parsedISO: dt.toISOString(),
+        raw: t?.journaledAt || t?.createdAt || t?.entryDate || t?.date || t?.timestamp || t?.time,
+        inWeek,
+        inLast7: in7d,
+      });
+    });
+
+    setTotalCount(total);
+    setWeeklyCount(weekCnt);
+    setLast7Count(last7);
+
+    // ---- fette Debug-Ausgaben ----
+    console.group("📊 Trade-Scan");
+    console.log("Gesamt-Trades:", total);
+    console.log(`Kalenderwoche (${weekStart.toISOString()} – ${weekEnd.toISOString()}):`, weekCnt);
+    console.log(`Letzte 7 Tage (ab ${since7.toISOString()}):`, last7);
+
+    console.groupCollapsed(`📄 Details (${debugRows.length})`);
+    debugRows.forEach((r) =>
+      console.log(
+        `id=${r.id} | parsed=${r.parsedISO} | inWeek=${r.inWeek} | inLast7=${r.inLast7} | raw=`,
+        r.raw
+      )
+    );
+    console.groupEnd();
+
+    if (noDate.length) {
+      console.warn("⚠️ Trades ohne erkennbares Datum:", noDate);
+    }
+    console.groupEnd();
+  });
+
+  return () => unsub();
+}, [db, uid, weekStart, weekEnd]);
+
+
+  // --- Auth + Userdoc laden ---
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      setUid(u?.uid || null);
+      if (!u?.uid) {
+        console.log("👤 [Dashboard] kein User eingeloggt – Plus-Button wird blockiert.");
+        setPlan("free");
+        setWeeklyCount(0);
+        return;
+      }
+      try {
+        const snap = await getDoc(doc(db, "users", u.uid));
+        const data = snap.exists() ? snap.data() : {};
+        // Plan-Logik an dein Schema anpassen
+        let p = "free";
+        if (data.isPro === true) p = "pro";
+        const role = String(data.stripeRole || data.plan || "").toLowerCase();
+        if (role === "pro") p = "pro";
+        else if (role === "advanced" || role === "adv") p = "advanced";
+        const sub = data.subscription || data.stripeSubscription || {};
+        if (p === "free" && String(sub.status || "").toLowerCase() === "active") {
+          p = "advanced";
+        }
+        setPlan(p);
+        console.log("🪪 [Dashboard] erkannter Plan:", p);
+      } catch (e) {
+        console.error("❗[Dashboard] Fehler beim Laden des Userdocs:", e);
+        setPlan("free");
+      }
+      // gleich initial zählen
+      await recomputeWeeklyCount();
+    });
+    return () => unsub();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [auth, db]);
+
+  // --- Zähler neu rechnen ---
+async function recomputeWeeklyCount() {
+  try {
+    if (!uid) {
+      setWeeklyCount(0);
+      setLastComputedAt(new Date());
+      return;
+    }
+
+    // Ohne orderBy, damit auch Mischschema lädt
+    const snap = await getDocs(collection(db, "users", uid, "trades"));
+    const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    const ws = startOfWeekBerlin(new Date());
+    const we = endOfWeekBerlin(new Date());
+
+    let count = 0;
+    for (const t of items) {
+      const d = getTradeDate(t, t.id);
+      const inWeek = d && d >= ws && d <= we;
+      console.log(
+        `[week-check] trade=${t.id} parsed=${d?.toISOString?.() ?? d} inWeek=${!!inWeek}`
+      );
+      if (inWeek) count += 1;
+    }
+
+    setWeeklyCount(count);
+    setLastComputedAt(new Date());
+    console.log(
+      `🔁 [Counter] Woche ${ws.toLocaleDateString()}–${we.toLocaleDateString()}:`,
+      { weeklyCount: count, totalTradesLoaded: items.length }
+    );
+  } catch (e) {
+    console.error("❗[Counter] Fehler beim Zählen:", e);
+  }
+}
+
+
+  // --- FAB Click mit fetten Logs ---
+  async function handleFabClick() {
+    console.clear?.(); // optional: Konsole leeren für deutliche Logs
+    console.log("➕ [PlusButton] Klick erkannt.");
+
+    if (!uid) {
+      console.log("🚫 [PlusButton] Kein Nutzer eingeloggt → blockiert.");
+      return;
+    }
+
+    // vor der Entscheidung immer kurz frisch zählen
+    await recomputeWeeklyCount();
+
+    const canOpen =
+      weeklyLimit === Infinity ? true : weeklyCount < weeklyLimit;
+
+    console.log("[PlusButton] Entscheidungsgrundlage:", {
+      plan,
+      weeklyLimit,
+      weeklyCount,
+      lastComputedAt,
+      decision: canOpen ? "OPEN_MODAL" : "BLOCK_AND_SUGGEST_UPGRADE",
+    });
+
+    if (canOpen) {
+      setShowTradeForm(true);
+      console.log("✅ [PlusButton] Modal geöffnet.");
+    } else {
+      console.log(
+        `🚫 [PlusButton] Limit erreicht (${weeklyCount}/${weeklyLimit}). Weiterleitung zur Abo-Seite.`
+      );
+      navigate("/settings?tab=subscription");
+    }
+  }
 
   return (
-     <aside
-    style={{
-      background: sidebarBg,
-      minHeight: "100vh",+      width: sidebarMin ? 70 : 230,
-      transition: "all 0.2s",
-      borderRight: "none",
-      boxShadow: "none"
-    }}
-    className="flex flex-col"  // <— KEIN fixed, kein left/top/z-index
-  >
-      {/* Burger */}
-      <div style={{ height: 70 }} className="flex items-center px-2">
-        <button
-          className="p-2 rounded focus:outline-none"
-          onClick={() => setSidebarMin(m => !m)}
-          title={sidebarMin ? "Expand" : "Collapse"}
-        >
-          <FaBars size={22} color={mainText} />
-        </button>
-      </div>
-      {/* Avatar + Mail */}
-      {!sidebarMin && (
-        <div className="flex flex-col items-center mb-7 mt-3">
-          <div
-            className="rounded-full w-14 h-14 flex items-center justify-center text-white text-xl font-bold mb-2"
-            style={{
-              background: "linear-gradient(135deg, #2c60fa 0%, #e82fa6 100%)"
-            }}
-          >
-            {userEmail ? userEmail[0].toUpperCase() : "U"}
-          </div>
-          <div className="font-semibold text-[15px] break-all max-w-[170px] text-center"
-            style={{
-              color: dark ? "#fff" : "#121316"
-            }}>
-            {userEmail || "user@email.com"}
-          </div>
-        </div>
-      )}
-      {/* Navigation */}
-      <nav className="flex flex-col gap-1 px-1 mt-2">
-        {navItems.map(item => (
-          <button
-            key={item.label}
-            onClick={() => navigate(item.path)}
-            style={{
-              color: location.pathname === item.path ? navActiveColor : navText,
-              background: location.pathname === item.path ? navActiveBg : "transparent",
-              fontWeight: 600,
-              border: "none",
-              boxShadow: "none",
-              borderRadius: 13,
-              transition: "all 0.16s"
-            }}
-            className={`flex items-center gap-3 px-4 py-2.5 text-[15px] ${
-              sidebarMin ? "justify-center" : ""
-            } hover:bg-[#ececf3] hover:text-[#121316] dark:hover:bg-[#23232a] dark:hover:text-[#fff]`}
-          >
-            <span className="text-lg">{item.icon}</span>
-            {!sidebarMin && <span>{item.label}</span>}
-          </button>
-        ))}
-        {/* Darkmode Toggle */}
-        <div className={`${sidebarMin ? "justify-center" : "justify-start"} flex px-4 py-4`}>
-          <FancySwitch checked={dark} onChange={setDark} />
+    <div style={{ minHeight: "100vh", background: dark ? "#1f1f1f" : "#ffffff" }}>
+      <Sidebar dark={dark} sidebarMin={sidebarMin} setSidebarMin={setSidebarMin} />
 
+      {/* Schiebt TopBar + Inhalt gemeinsam */}
+      <div
+        style={{
+          marginLeft: sidebarWidth,
+          transition: "margin-left .22s ease",
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <TopBar dark={dark} setDark={setDark} />
+        <div style={{ flex: 1, padding: "32px 28px 28px" }}>
+          <Outlet context={{ dark }} />
         </div>
-      </nav>
-      {/* Bottom: Account Settings */}
-      <div className="mt-auto mb-7 flex items-center justify-center">
-        <button
-          onClick={() => navigate("/dashboard/settings")}
-          style={{
-            color: navText,
-            background: "transparent",
-            border: "none",
-            fontWeight: 800,
-            borderRadius: 13,
-            padding: sidebarMin ? "12px" : "12px 24px"
-          }}
-          className="flex items-center gap-2"
-        >
-          <FaCog className="text-lg" />
-          {!sidebarMin && "Account Settings"}
-        </button>
       </div>
-    </aside>
+
+      {/* Trade-Form Modal */}
+      <TradeFormModal
+        open={showTradeForm}
+        onClose={() => {
+          console.log("ℹ️ [Modal] geschlossen.");
+          setShowTradeForm(false);
+          // nach dem Speichern/Schließen erneut zählen (falls du im Modal speicherst)
+          setTimeout(() => recomputeWeeklyCount(), 300);
+        }}
+        dark={dark}
+      />
+
+      {/* FAB */}
+      <button
+        onClick={handleFabClick}
+        className="fab-new-trade"             // <- eindeutige Klasse für Debug/Tests
+        style={{
+          position: "fixed",
+          bottom: 28,
+          right: 28,
+          background: accent,
+          borderRadius: "50%",
+          width: 58,
+          height: 58,
+          boxShadow: "0 2px 18px 0 #21347a3a",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#fff",
+          border: "none",
+          fontSize: 32,
+          zIndex: 1000,
+          cursor: "pointer",
+          transition: "background .2s",
+        }}
+        aria-label="New Trade"
+        title="Neuen Trade anlegen"
+      >
+        <FiPlus />
+      </button>
+    </div>
   );
 }

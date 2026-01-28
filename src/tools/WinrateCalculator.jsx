@@ -7,9 +7,7 @@ import {
   query,
   orderBy,
 } from "firebase/firestore";
-import {
-  FaChevronDown, FaChevronUp, FaSyncAlt, FaCheck, FaTimes
-} from "react-icons/fa";
+
 
 /* --------------- Theme (wie eure Tools) --------------- */
 const theme = (dark = true) => ({
@@ -112,8 +110,76 @@ const weights = {
   position: 0.05,
 };
 
-export default function WinrateCalculator({ dark = true }) {
-  const T = theme(dark);
+export default function WinrateCalculator() {
+  // Zentrale, robuste Dark-Erkennung (ohne Prop):
+  const getGlobalDark = () => {
+    const docEl = document.documentElement;
+    const body = document.body;
+
+    // a) neues Schema: <html data-theme="dark" | "light">
+    const attr = docEl.getAttribute("data-theme");
+    if (attr === "dark") return true;
+    if (attr === "light") return false;
+
+    // b) App-Storage: localStorage("darkMode") -> "true"/"false"
+    try {
+      const saved = localStorage.getItem("darkMode");
+      if (saved === "true") return true;
+      if (saved === "false") return false;
+    } catch {}
+
+    // c) legacy: body.classList.contains("dark")
+    if (body && body.classList && body.classList.contains("dark")) return true;
+
+    // d) Fallback: System-Theme
+    if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) return true;
+
+    return false;
+  };
+
+  const [isDark, setIsDark] = useState(getGlobalDark);
+
+// direkt in WinrateCalculator()
+const [isNarrow, setIsNarrow] = useState(() => window.innerWidth <= 820);
+useEffect(() => {
+  const onResize = () => setIsNarrow(window.innerWidth <= 820);
+  window.addEventListener("resize", onResize);
+  return () => window.removeEventListener("resize", onResize);
+}, []);
+
+  useEffect(() => {
+    const docEl = document.documentElement;
+    const body = document.body;
+
+    // Beobachte <html data-theme="...">
+    const obsHtml = new MutationObserver(() => setIsDark(getGlobalDark()));
+    obsHtml.observe(docEl, { attributes: true, attributeFilter: ["data-theme"] });
+
+    // Beobachte body.class (legacy)
+    const obsBody = new MutationObserver(() => setIsDark(getGlobalDark()));
+    obsBody.observe(body, { attributes: true, attributeFilter: ["class"] });
+
+    // Reagiere auf Systemwechsel
+    const mq = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)");
+    const onMQ = () => setIsDark(getGlobalDark());
+    if (mq && mq.addEventListener) mq.addEventListener("change", onMQ);
+
+    // Reagiere auf Änderungen von localStorage (darkMode)
+    const onStorage = (e) => {
+      if (e.key === "darkMode") setIsDark(getGlobalDark());
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      obsHtml.disconnect();
+      obsBody.disconnect();
+      if (mq && mq.removeEventListener) mq.removeEventListener("change", onMQ);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+
+  const T = theme(isDark);
+
   const auth = getAuth();
   const db = getFirestore();
   const uid = auth.currentUser?.uid || null;
@@ -125,10 +191,39 @@ export default function WinrateCalculator({ dark = true }) {
 
   // Confluence-Palette: text -> color HEX
   const [palette, setPalette] = useState({});
-  const [loadingPalette, setLoadingPalette] = useState(false);
+  const [ setLoadingPalette] = useState(false);
 
   // ---------- DRAFT (UI) ----------
   const [draftPair, setDraftPair] = useState("");
+// 2) Abgerundetes Select (sichtbar in Dark/Light)
+const selectStyleWide = (T) => ({
+  border: `1px solid ${T.border}`,
+  background: T.dark ? "#1f1f1f" : "#ffffff",
+  color: T.text,
+  padding: "10px 12px",
+  borderRadius: 12,
+  fontWeight: 700,
+  width: "100%",
+  minHeight: 44,
+  appearance: "none",
+  WebkitAppearance: "none",
+  MozAppearance: "none",
+  outline: "none",
+  caretColor: T.text,
+  overflow: "hidden",        // sorgt dafür, dass die Ecken wirken
+});
+
+// 1) Nur Symbole aus Trades (normalisiert 
+const allPairs = useMemo(() => {
+  const set = new Set();
+  arr(trades).forEach((t) => {
+    const s = str(t.symbol).trim();
+    if (s) set.add(s);   // vollständiger Text, nicht normalizeSymbol
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b));
+}, [trades]);
+
+
   const [draftPosition, setDraftPosition] = useState("Buy");
   const [draftDay, setDraftDay] = useState("Mon");
   const [draftConfs, setDraftConfs] = useState([]);
@@ -188,12 +283,7 @@ export default function WinrateCalculator({ dark = true }) {
     return unsub;
   }, [db, uid]);
 
-  /* ---- Optionen ---- */
-  const allPairs = useMemo(() => {
-    const set = new Set(arr(trades).map((t) => normalizeSymbol(t.symbol)));
-    set.delete("");
-    return Array.from(set).sort();
-  }, [trades]);
+
 
   const allConfs = useMemo(() => {
     const s = new Set();
@@ -279,11 +369,11 @@ export default function WinrateCalculator({ dark = true }) {
 
   /* ---- UI ---- */
   return (
-    <div style={{ background: T.bg, minHeight: "100%", color: T.text }}>
-      <div style={{ maxWidth: "none", margin: "0 auto", padding: "8px 18px 36px" }}>
+    <div style={{ background: T.bg, minHeight: "100vh", color: T.text }}>
+      <div style={{ maxWidth: "none", margin: "0 auto", padding: "8px 3px 36px" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 8 }}>
-          <h1 style={{ margin: "2px 0 2px", fontSize: 40, fontWeight: 900, color: T.text }}>Winrate Calculator</h1>
+          <h1 style={{ margin: "-5px 0 2px", fontSize: 34, fontWeight: 700, color: T.text }}>Winrate Calculator</h1>
           <span
             style={{
               padding: "6px 10px",
@@ -292,6 +382,7 @@ export default function WinrateCalculator({ dark = true }) {
               color: T.sub,
               fontWeight: 700,
               fontSize: 12,
+                transform: "translateY(-4px)" 
             }}
           >
             {loadingTrades ? "Loading trades…" : fireErr ? "No data" : `${trades.length} trades`}
@@ -303,13 +394,40 @@ export default function WinrateCalculator({ dark = true }) {
           <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
             {/* Symbol – abgerundet + im Dark Mode nicht weiß */}
             <LabeledBox label="Symbol" T={T}>
-              <select
-                value={draftPair}
-                onChange={(e) => setDraftPair(e.target.value)}
-                style={selectStyleWide(T)}   // <-- neu: dunkler Hintergrund + runde Ecken
-              >
-                {allPairs.length ? allPairs.map((p) => <option key={p} value={p}>{p}</option>) : <option value="">—</option>}
-              </select>
+<select
+  value={draftPair}
+  onChange={(e) => setDraftPair(e.target.value)}
+  style={selectStyleWide(T)}
+>
+  {allPairs.length ? (
+    allPairs.map((p) => (
+      <option
+        key={p}
+        value={p}
+        style={{
+          background: T.dark ? "#1f1f1f" : "#ffffff",
+          color: T.text,
+          borderRadius: 12,          // auch die Option-Ecken abrunden
+        }}
+      >
+        {p}
+      </option>
+    ))
+  ) : (
+    <option
+      value=""
+      style={{
+        background: T.dark ? "#1f1f1f" : "#ffffff",
+        color: T.text,
+      }}
+    >
+      —
+    </option>
+  )}
+</select>
+
+
+
             </LabeledBox>
 
             {/* Day of Week – direkt unter Symbol */}
@@ -342,7 +460,7 @@ export default function WinrateCalculator({ dark = true }) {
                 }}
               >
                 {allConfs.length === 0 ? (
-                  <div style={{ color: T.sub, fontWeight: 600 }}>Keine Confluences gefunden.</div>
+                  <div style={{ color: T.sub, fontWeight: 600 }}>no confluences found.</div>
                 ) : (
                   allConfs.map((c) => {
                     const active = draftConfs.includes(c);
@@ -435,7 +553,7 @@ export default function WinrateCalculator({ dark = true }) {
               marginTop: 14,
               padding: 12,
               borderRadius: 12,
-              background: T.dark ? "#1b1d22" : "#f4f7ff",
+              background: T.dark ? "#1f1f1f" : "#f4f7ff",
               border: `1px solid ${T.dark ? "#2a2d34" : "#dfe7ff"}`,
               color: T.text,
               fontWeight: 600,
@@ -445,40 +563,42 @@ export default function WinrateCalculator({ dark = true }) {
           </div>
         </div>
 
-        {/* ---------- Breakdown ---------- */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(12,1fr)", gap: 14 }}>
-          <Card title="Winrate by Weekday" T={T} colSpan={6}>
-            <WeekdayTable T={T} trades={trades} />
-          </Card>
+{/* ---------- Breakdown ---------- */}
+<div
+  style={{
+    display: "grid",
+    gridTemplateColumns: isNarrow ? "1fr" : "repeat(12,1fr)",
+    gap: 14,
+  }}
+>
+  <Card title="Winrate by Weekday" T={T} colSpan={isNarrow ? 12 : 6}>
+    <WeekdayTable T={T} trades={trades} />
+  </Card>
 
-          <Card title="Confluence Breakdown" T={T} colSpan={6}>
-            <ConfluenceTable T={T} trades={trades} palette={palette} />
-          </Card>
+  <Card title="Confluence Breakdown" T={T} colSpan={isNarrow ? 12 : 6}>
+    <ConfluenceTable T={T} trades={trades} palette={palette} />
+  </Card>
 
-          <Card title="Matching Trades (Applied filters)" T={T} colSpan={12}>
-            <MatchList T={T} trades={trades} pair={appliedPair} day={appliedDay} pos={appliedPosition} confs={appliedConfs} palette={palette} />
-          </Card>
-        </div>
+  <Card title="Matching Trades (Applied filters)" T={T} colSpan={12}>
+    <MatchList
+      T={T}
+      trades={trades}
+      pair={appliedPair}
+      day={appliedDay}
+      pos={appliedPosition}
+      confs={appliedConfs}
+      palette={palette}
+    />
+  </Card>
+</div>
+
+
       </div>
     </div>
   );
 }
 
-/* ================= Styles/Helpers ================= */
 
-const selectStyleWide = (T) => ({
-  border: `1px solid ${T.border}`,
-  background: T.dark ? "#1b1d22" : "#ffffff", // sichtbar im Dark-Mode
-  color: T.text,
-  padding: "10px 12px",
-  borderRadius: 12,            // abgerundete Ecken
-  fontWeight: 700,
-  width: "100%",
-  minHeight: 44,
-  appearance: "none",
-  WebkitAppearance: "none",
-  MozAppearance: "none",
-});
 
 const segBtnWide = (T, active) => ({
   flex: 1,
@@ -510,7 +630,7 @@ const chipColored = (T, active, color) => ({
   borderRadius: 12,
   border: `1px solid ${(color || T.accent) + "66"}`,
   background: (color || T.accent) + (T.dark ? "26" : "1a"),
-  color: "#fff",
+ color: T.dark ? "#fff" : "#000",
   fontWeight: 800,
 });
 
@@ -525,14 +645,6 @@ const primaryBtnBlock = (T) => ({
   boxShadow: "0 8px 24px rgba(44,96,250,.35)",
 });
 
-const ghostBtn = (T) => ({
-  padding: "8px 10px",
-  borderRadius: 10,
-  border: `1px solid ${T.border}`,
-  background: "transparent",
-  color: T.text,
-  fontWeight: 800,
-});
 
 /* ---------- animierte Elemente ---------- */
 function BorderGlow() {
@@ -580,7 +692,7 @@ function ProgressLine() {
       <div style={{ position: "relative", height: 4, background: "rgba(44,96,250,.18)", borderRadius: 4, marginTop: 8, overflow: "hidden" }}>
         <div
           style={{
-            position: "absolute",
+            position: "absolute", 
             inset: 0,
             transform: "translateX(-60%)",
             width: "60%",
@@ -642,7 +754,7 @@ function LabeledBox({ label, T, children }) {
 
 function MiniStat({ T, label, value }) {
   return (
-    <div style={{ background: T.dark?"#1b1d22":"#f6f9ff", border:`1px solid ${T.dark?"#2a2d34":"#e1e8ff"}`, borderRadius:12, padding:10 }}>
+    <div style={{ background: T.dark?"#1f1f1f":"#f6f9ff", border:`1px solid ${T.dark?"#2a2d34":"#e1e8ff"}`, borderRadius:12, padding:10 }}>
       <div style={{ color: T.sub, fontWeight: 800, fontSize: 11, textTransform:"uppercase" }}>{label}</div>
       <div style={{ fontWeight: 900, fontSize: 18, marginTop: 2, color: T.text }}>{value}</div>
     </div>
@@ -802,24 +914,6 @@ function MatchList({ T, trades, pair, day, pos, confs, palette }) {
   );
 }
 
-
-/* --------------- Styles --------------- */
-const selectStyle = (T) => ({
-  border:`1px solid ${T.border}`, background:"transparent", color:T.text,
-  padding:"8px 10px", borderRadius:10, fontWeight:700, width:"100%",
-});
-const segBtn = (T, active)=>({
-  padding:"8px 12px", borderRadius:10,
-  border:`1px solid ${active?T.accent:T.border}`,
-  background: active?T.accent:"transparent",
-  color: active?"#fff":T.text, fontWeight:800, minWidth:80,
-});
-const pillBtn = (T, active)=>({
-  padding:"6px 10px", borderRadius:10,
-  border:`1px solid ${active?T.accent:T.border}`,
-  background: active?T.accent:"transparent",
-  color: active?"#fff":T.text, fontWeight:800,
-});
 
 const th = (T, left=false)=>({
   textAlign:left?"left":"right", padding:"10px 10px",

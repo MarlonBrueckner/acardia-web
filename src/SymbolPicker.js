@@ -35,25 +35,25 @@ function useTheme(dark, themeFromParent) {
     if (themeFromParent) return themeFromParent;
     return dark
       ? {
-          panel: "#1f1f1f",
-          input: "#1f1f1f",
-          inputBorder: "#4e4e4e",
-          text: "#ffffff",
-          sub: "#bfc4cf",
-          border: "#4e4e4e",
-          accent: "#2c60fa",
-          shadow: "0 6px 40px rgba(0,0,0,.45)",
-        }
+        panel: "#1f1f1f",
+        input: "#1f1f1f",
+        inputBorder: "#4e4e4e",
+        text: "#ffffff",
+        sub: "#bfc4cf",
+        border: "#4e4e4e",
+        accent: "#2c60fa",
+        shadow: "0 6px 40px rgba(0,0,0,.45)",
+      }
       : {
-          panel: "#ffffff",
-          input: "#ffffff",
-          inputBorder: "#e3e7ef",
-          text: "#23232a",
-          sub: "#495060",
-          border: "#e3e7ef",
-          accent: "#2c60fa",
-          shadow: "0 10px 40px rgba(30,36,64,.18)",
-        };
+        panel: "#ffffff",
+        input: "#ffffff",
+        inputBorder: "#e3e7ef",
+        text: "#23232a",
+        sub: "#495060",
+        border: "#e3e7ef",
+        accent: "#2c60fa",
+        shadow: "0 10px 40px rgba(30,36,64,.18)",
+      };
   }, [dark, themeFromParent]);
 }
 
@@ -77,17 +77,23 @@ function Section({ title, color, children, theme }) {
     </div>
   );
 }
-
-function Row({ label, isFav, onPick, onToggleFav, theme, dark }) {
+function Row({ label, isFav, selected = false, onPick, onToggleFav, theme, dark }) {
   return (
     <div
+      role="option"
+      aria-selected={selected}
+      tabIndex={0}
       onClick={onPick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") onPick();
+      }}
       style={{
         padding: "10px 12px",
         cursor: "pointer",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
+        outline: "none",
       }}
       onMouseEnter={(e) =>
         (e.currentTarget.style.background = dark ? theme.input : "#f7f7fb")
@@ -115,16 +121,17 @@ function Row({ label, isFav, onPick, onToggleFav, theme, dark }) {
         style={{
           border: "none",
           background: "transparent",
-          // Favoriten-Icon in BLAU
           color: isFav ? theme.accent : theme.sub,
           cursor: "pointer",
         }}
+        aria-label={isFav ? "Remove favorite" : "Add favorite"}
       >
         {isFav ? <FaBookmark size={16} /> : <FiBookmark size={18} />}
       </button>
     </div>
   );
 }
+
 
 /* ---------- SymbolPicker ---------- */
 /**
@@ -166,7 +173,7 @@ export default function SymbolPicker({
       const snap = await getDocs(collection(db, "users", uid, "symbolFavorites"));
       const items = snap.docs.map((d) => ({ id: d.id, label: d.data().label }));
       setFavSymbols(items.map((it) => it.label));
- setFavIds(items.reduce((acc, it) => ({ ...acc, [it.label]: it.id }), {}));
+      setFavIds(items.reduce((acc, it) => ({ ...acc, [it.label]: it.id }), {}));
 
     })();
   }, [db, uid]);
