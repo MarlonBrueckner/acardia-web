@@ -25,3 +25,6 @@ yarn-error.log*
 functions/.env
 backend/serviceAccount.json
 
+
+backend/credentials/*.json
+
