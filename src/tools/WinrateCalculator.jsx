@@ -191,7 +191,8 @@ useEffect(() => {
 
   // Confluence-Palette: text -> color HEX
   const [palette, setPalette] = useState({});
-  const [ setLoadingPalette] = useState(false);
+  const [loadingPalette, setLoadingPalette] = useState(false);
+
 
   // ---------- DRAFT (UI) ----------
   const [draftPair, setDraftPair] = useState("");

@@ -13,7 +13,9 @@ import {
 } from "firebase/firestore";
 
 import { useNavigate, useLocation } from "react-router-dom";
- import { FiStar } from "react-icons/fi";
+ import { FiStar, FiInfo } from "react-icons/fi";
+
+
 
 import {
   ResponsiveContainer,
@@ -501,13 +503,22 @@ useEffect(() => {
     return yearsAvailable.includes(thisYear) ? thisYear : yearsAvailable[yearsAvailable.length - 1];
   });
 }, [yearsAvailable]);
-
-// Daten für das aktuell gewählte Jahr
 const monthlyRows = useMemo(() => {
-  return buildMonthlyPLForYear(scoped, yearMonthly); // 12 Einträge Jan..Dez
+  return buildMonthlyPLForYear(scoped, yearMonthly);
 }, [scoped, yearMonthly]);
 
 const monthlyMA = useMemo(() => movingAvgN(monthlyRows, 3), [monthlyRows]);
+
+// Daten für das aktuell gewählte Jahr
+const monthlyRowsWithMA = useMemo(() => {
+  return monthlyRows.map(d => ({
+    ...d,
+    ma3: monthlyMA.find(m => m.monthIdx === d.monthIdx)?.ma ?? null
+  }));
+}, [monthlyRows, monthlyMA]);
+
+
+
 const { data: confData, series: confSeries } = useMemo(
   () => equityByConfluenceOnly(scoped, confMeta, confEnabled),
   [scoped, confMeta, confEnabled]
@@ -666,6 +677,7 @@ const gradNegId = "barNegMonthly";
     isPhone={isPhone}
   />
   <StatCard title="Consistency" value={`${consistencyFromWinrate(winrateSpark)} / 100`} T={T} colSpan={2} isTablet={isTablet} isPhone={isPhone}/>
+
   <StatCard title="Max Profit"  value={`${currency}${Math.abs(KPIs.maxProfit)}`} T={T} colSpan={2} isTablet={isTablet} isPhone={isPhone}/>
   <StatCard title="Max Loss"    value={`-${currency}${Math.abs(KPIs.maxLoss)}`} T={T} colSpan={2} isTablet={isTablet} isPhone={isPhone}/>
   <StatCard title="Avg Profit"  value={`${currency}${Math.abs(KPIs.avgProfit)}`} T={T} colSpan={1} isTablet={isTablet} isPhone={isPhone}/>
@@ -770,8 +782,12 @@ const gradNegId = "barNegMonthly";
             </linearGradient>
           ))}
         </defs>
-
-        <Tooltip contentStyle={tooltipStyle} />
+<Tooltip
+  contentStyle={{ ...tooltipStyle, color: T.text }}
+  labelStyle={{ color: T.text, fontWeight: 800 }}
+  itemStyle={{ color: T.text, fontWeight: 700 }}
+  cursor={false}
+/>
 
         <Pie
           data={buildOutcome(scoped)}
@@ -870,10 +886,28 @@ const gradNegId = "barNegMonthly";
           )}
         />
 
-        <Tooltip
-          contentStyle={tooltipStyle}
-          formatter={(v) => [fmtCurrencyTick(currency)(v), "P/L"]}
-        />
+<Tooltip
+  cursor={false}
+  contentStyle={tooltipStyle}
+  labelFormatter={(lab, payload) => payload?.[0]?.payload?.dateFull || lab}
+  content={({ label, payload }) => {
+    const p = (payload || []).find(x => x.dataKey === "total");
+    if (!p || p.value == null) return null;
+
+    return (
+      <div style={tooltipStyle}>
+        <div style={{ color: T.sub, fontWeight: 800, marginBottom: 6 }}>
+          {label}
+        </div>
+        <div style={{ color: T.accent, fontWeight: 900 }}>
+          {`${fmtCurrencyTick(currency)(p.value)} · Equity`}
+        </div>
+      </div>
+    );
+  }}
+/>
+
+
 
         {/* Null-Linie in Gridfarbe (kein „heller Punkt“ am Start) */}
         <ReferenceLine x={0} stroke={T.grid} strokeWidth={1} />
@@ -1246,7 +1280,8 @@ const gradNegId = "barNegMonthly";
         const gradNeg = "wfNeg";
         const gradEq  = "wfEqFill";
         return (
-          <ComposedChart data={confData} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
+       <ComposedChart data={data} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
+
             <defs>
               {/* Balken-Gradients */}
               <linearGradient id={gradPos} x1="0" y1="0" x2="0" y2="1">
@@ -1333,8 +1368,6 @@ const gradNegId = "barNegMonthly";
     </ResponsiveContainer>
   </div>
 </Card>
-
-
 {/* --- Monthly P/L (12 Monate) + 3M MA --- */}
 <Card
   title={
@@ -1369,9 +1402,11 @@ const gradNegId = "barNegMonthly";
   colSpan={6}
   isNarrow={stackCharts}
 >
+
+
   <div style={{ width:"100%", height: 300, minWidth: 0 }}>
     <ResponsiveContainer>
-      <ComposedChart data={monthlyRows} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
+<ComposedChart data={monthlyRowsWithMA} margin={{ left: 12, right: 20, top: 8, bottom: 12 }}>
         <defs>
           <linearGradient id={gradPosId} x1="0" y1="0" x2="0" y2="1">
             <stop offset="0%" stopColor={T.good} stopOpacity={1}/>
@@ -1404,11 +1439,29 @@ const gradNegId = "barNegMonthly";
           tickLine={false}
         />
 
-        <Tooltip
-          contentStyle={tooltipStyle}
-          formatter={(v, n) => [fmtCurrencyTick(currency)(v), n === "pl" ? "P/L" : "3M MA"]}
-          labelFormatter={(label) => `${label} ${yearMonthly ?? ""}`}
-        />
+<Tooltip
+  cursor={false}
+  wrapperStyle={{ outline: "none" }}
+  contentStyle={tooltipStyle}
+  labelFormatter={(label) => `${label} ${yearMonthly ?? ""}`}
+  content={({ label, payload }) => {
+    const p = (payload || []).find(x => x.dataKey === "ma3");
+    if (!p || p.value == null) return null;
+
+    return (
+      <div style={tooltipStyle}>
+        <div style={{ color: T.sub, fontWeight: 800, marginBottom: 6 }}>
+          {`${label} ${yearMonthly ?? ""}`}
+        </div>
+        <div style={{ color: "#fa67b0", fontWeight: 900 }}>
+          {`${fmtCurrencyTick(currency)(p.value)} · 3M MA`}
+        </div>
+      </div>
+    );
+  }}
+/>
+
+
 
         {/* Bars: immer 12 Stück, 0er werden dünn gezeichnet */}
         <Bar dataKey="pl" name="P/L" barSize={20} radius={[6,6,0,0]}>
@@ -1423,15 +1476,17 @@ const gradNegId = "barNegMonthly";
           ))}
         </Bar>
 
-        {/* 3M Moving Average – Linie über die 12 Monate */}
-        <Line
-          type="monotone"
-          dataKey={(d) => (monthlyMA.find(m => m.monthIdx === d.monthIdx) || {}).ma}
-          name="3M MA"
-          stroke="#fa67b0"
-          strokeWidth={2}
-          dot={false}
-        />
+       <Line
+  type="monotone"
+  dataKey="ma3"
+  name="3M MmA"
+  stroke="#fa67b0"
+  strokeWidth={2}
+  dot={false}
+  activeDot={false}
+/>
+
+        
       </ComposedChart>
     </ResponsiveContainer>
   </div>
@@ -2190,7 +2245,7 @@ function winrateByHour(scoped){
 
 
 
-function StatCard({ title, value, big=false, color, T, colSpan=3 }) {
+function StatCard({ title, value, big=false, color, T, colSpan=3, info=null }) {
   return (
     <div style={{
       gridColumn:`span ${colSpan}`,
@@ -2198,10 +2253,29 @@ function StatCard({ title, value, big=false, color, T, colSpan=3 }) {
       border:`1px solid ${T.border}`,
       borderRadius:14,
       padding:14,
-      boxShadow: T.kpiShadow
+      boxShadow: T.kpiShadow,
+      minWidth: 0
     }}>
-      <div style={{ color:T.sub, fontWeight:700, fontSize:12, textTransform:"uppercase", letterSpacing:.6 }}>{title}</div>
-      <div style={{ color: color || T.text, fontWeight:900, fontSize: big?28:22, marginTop:6 }}>{value}</div>
+      <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:10 }}>
+        <div style={{ color:T.sub, fontWeight:700, fontSize:12, textTransform:"uppercase", letterSpacing:.6 }}>
+          {title}
+        </div>
+
+        {info && (
+          <span style={{ position:"relative", display:"inline-flex", alignItems:"center" }}>
+            <FiInfo
+              size={14}
+              color={T.sub}
+              style={{ cursor:"help" }}
+              title={info} // ✅ simpelster Tooltip (native)
+            />
+          </span>
+        )}
+      </div>
+
+      <div style={{ color: color || T.text, fontWeight:900, fontSize: big?28:22, marginTop:6 }}>
+        {value}
+      </div>
     </div>
   );
 }
